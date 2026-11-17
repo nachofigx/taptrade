@@ -1,4 +1,4 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet, niceBand } from './engine.js?v=3';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet, niceBand } from './engine.js?v=4';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -18,7 +18,134 @@ let last = null, first = null, vol = new Vol(), band = 1, board = new Map(), boa
 let TOP = 68;                    // height of the top bar; the playfield starts below it
 let hover = null, ws = null, wsTimer = null, W = 0, H = 0, dpr = 1, nextId = 1, RH = 40;
 let wins = 0, losses = 0, pnl = 0, lastTickAt = 0;
+let streak = 0, bestStreak = 0, lastFrameAt = performance.now();
+const parts = []; let banner = null, shakeMag = 0;
 const now = () => Date.now() / 1000;
+
+// ---------- sound (synthesized with Web Audio, no files) ----------
+let actx = null, master = null, muted = localStorage.getItem('tl.mute') === '1';
+function audio() {
+  if (muted) return null;
+  if (!actx) {
+    const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
+    actx = new AC(); master = actx.createGain(); master.gain.value = 0.55; master.connect(actx.destination);
+  }
+  if (actx.state === 'suspended') actx.resume();
+  return actx;
+}
+let soundsPlayed = 0;
+function tone(freq, t0, dur, { type = 'sine', gain = 0.18, slide = 1, attack = 0.006 } = {}) {
+  soundsPlayed++;
+  const a = actx, o = a.createOscillator(), g = a.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, t0);
+  if (slide !== 1) o.frequency.exponentialRampToValueAtTime(Math.max(20, freq * slide), t0 + dur);
+  g.gain.setValueAtTime(0.0001, t0); g.gain.linearRampToValueAtTime(gain, t0 + attack); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  o.connect(g); g.connect(master); o.start(t0); o.stop(t0 + dur + 0.02);
+}
+function noise(t0, dur, gain, f0, f1) {
+  const a = actx, n = Math.floor(a.sampleRate * dur), buf = a.createBuffer(1, n, a.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const src = a.createBufferSource(); src.buffer = buf;
+  const f = a.createBiquadFilter(); f.type = 'bandpass'; f.Q.value = 0.8; f.frequency.setValueAtTime(f0, t0); f.frequency.exponentialRampToValueAtTime(f1, t0 + dur);
+  const g = a.createGain(); g.gain.setValueAtTime(gain, t0); g.gain.exponentialRampToValueAtTime(0.0001, t0 + dur);
+  src.connect(f); f.connect(g); g.connect(master); src.start(t0);
+}
+const semi = (root, n) => root * Math.pow(2, n / 12);
+const sfx = {
+  tap(m) { // higher multiplier = higher, brighter pop
+    if (!audio()) return; const t = actx.currentTime, f = 330 + Math.min(Math.log(m) * 150, 650);
+    tone(f, t, 0.12, { type: 'triangle', gain: 0.24, slide: 1.6 }); tone(f * 2, t + 0.015, 0.07, { gain: 0.07 }); noise(t, 0.04, 0.08, 4000, 1500);
+  },
+  win(m, streakN) { // pentatonic arpeggio that climbs with the streak
+    if (!audio()) return; const t = actx.currentTime, root = semi(523.25, Math.min(streakN - 1, 8));
+    [0, 4, 7, 12].forEach((n, i) => { tone(semi(root, n), t + i * 0.065, 0.26, { type: 'triangle', gain: 0.2 }); tone(semi(root, n) * 2, t + i * 0.065, 0.14, { gain: 0.05 }); });
+    noise(t, 0.18, 0.1, 6000, 9000);
+    if (m >= 8) { // big win: fanfare + sub boom
+      [16, 19, 24, 28].forEach((n, i) => tone(semi(root, n), t + 0.28 + i * 0.07, 0.4, { type: 'square', gain: 0.07 }));
+      tone(90, t, 0.6, { gain: 0.35, slide: 0.45 }); noise(t + 0.05, 0.7, 0.12, 400, 8000);
+    }
+    if (m >= 25) [0, 7, 12, 19, 24].forEach((n, i) => tone(semi(root * 2, n), t + 0.7 + i * 0.08, 0.5, { type: 'triangle', gain: 0.1 }));
+  },
+  lose(near) {
+    if (!audio()) return; const t = actx.currentTime;
+    tone(near ? 330 : 240, t, 0.28, { type: 'sawtooth', gain: 0.07, slide: 0.55 }); tone(near ? 262 : 180, t + 0.1, 0.3, { type: 'sine', gain: 0.1, slide: 0.6 });
+    noise(t, 0.12, 0.04, 800, 200);
+  },
+  streak(n) {
+    if (!audio()) return; const t = actx.currentTime, root = semi(660, Math.min(n, 10));
+    [0, 7, 12, 16, 19].forEach((x, i) => tone(semi(root, x), t + i * 0.05, 0.3, { type: 'triangle', gain: 0.09 }));
+  },
+  error() { if (!audio()) return; const t = actx.currentTime; tone(150, t, 0.16, { type: 'square', gain: 0.06, slide: 0.7 }); },
+};
+const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
+
+// ---------- visual effects ----------
+function burst(x, y, o = {}) {
+  const { n = 16, hue = 170, speed = 240, life = 0.7, grav = 360, size = 3, light = 66, spread = Math.PI * 2, angle = 0 } = o;
+  for (let i = 0; i < n; i++) {
+    const a = angle + (Math.random() - 0.5) * spread, v = speed * (0.35 + Math.random() * 0.85);
+    parts.push({ k: 'dot', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, max: life * (0.6 + Math.random() * 0.8), size: size * (0.6 + Math.random()), h: hue + (Math.random() - 0.5) * 36, light, grav });
+  }
+}
+function ring(x, y, hue, big = 1) { parts.push({ k: 'ring', x, y, t: 0, max: 0.55, h: hue, big }); }
+function confetti(x, y, n) {
+  for (let i = 0; i < n; i++) {
+    const a = -Math.PI / 2 + (Math.random() - 0.5) * 2.4, v = 260 + Math.random() * 520;
+    parts.push({ k: 'conf', x, y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, max: 1.6 + Math.random() * 1.2, w: 5 + Math.random() * 6, h: Math.random() * 360, rot: Math.random() * 6, vr: (Math.random() - 0.5) * 16, grav: 620 });
+  }
+}
+function shake(mag) { shakeMag = Math.max(shakeMag, mag); }
+function showBanner(text, sub, hue, big) { banner = { text, sub, hue, big, t: 0 }; }
+function stepFx(dt) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i]; p.t += dt;
+    if (p.t >= p.max) { parts.splice(i, 1); continue; }
+    if (p.k !== 'ring') { p.vy += p.grav * dt; p.vx *= Math.pow(0.18, dt); p.x += p.vx * dt; p.y += p.vy * dt; if (p.k === 'conf') p.rot += p.vr * dt; }
+  }
+  shakeMag = shakeMag > 0.4 ? shakeMag * Math.exp(-dt * 8) : 0;
+  if (banner) { banner.t += dt; if (banner.t > 2.2) banner = null; }
+}
+function drawFx() {
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of parts) {
+    const a = 1 - p.t / p.max;
+    if (p.k === 'dot') { ctx.fillStyle = `hsla(${p.h},95%,${p.light}%,${a})`; ctx.beginPath(); ctx.arc(p.x, p.y, p.size * (0.4 + a * 0.6), 0, 7); ctx.fill(); }
+    else if (p.k === 'ring') { const r = 8 + (1 - a) * 90 * p.big; ctx.strokeStyle = `hsla(${p.h},95%,70%,${a * 0.9})`; ctx.lineWidth = 1 + 4 * a; ctx.beginPath(); ctx.arc(p.x, p.y, r, 0, 7); ctx.stroke(); }
+  }
+  ctx.globalCompositeOperation = 'source-over';
+  for (const p of parts) {
+    if (p.k !== 'conf') continue;
+    ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.scale(1, Math.cos(p.rot * 1.7)); ctx.fillStyle = `hsla(${p.h},90%,62%,${Math.min(1, (1 - p.t / p.max) * 1.6)})`;
+    ctx.fillRect(-p.w / 2, -p.w / 4, p.w, p.w / 2); ctx.restore();
+  }
+  if (banner) {
+    const b = banner, fade = b.t > 1.6 ? 1 - (b.t - 1.6) / 0.6 : 1, pop = 1 + 0.45 * Math.max(0, 1 - b.t / 0.28) ** 2;
+    const fs = (W < 600 ? 0.62 : 1) * (b.big ? 54 : 34), cx = W / 2, cy = TOP + (H - TOP) * 0.24 - b.t * 10;
+    ctx.save(); ctx.globalAlpha = Math.max(0, fade); ctx.translate(cx, cy); ctx.scale(pop, pop); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.font = `900 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.lineJoin = 'round'; ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(5,8,16,0.85)'; ctx.strokeText(b.text, 0, 0);
+    const g = ctx.createLinearGradient(0, -fs / 2, 0, fs / 2); g.addColorStop(0, `hsl(${b.hue},95%,80%)`); g.addColorStop(1, `hsl(${b.hue + 40},95%,58%)`);
+    ctx.shadowColor = `hsl(${b.hue},95%,60%)`; ctx.shadowBlur = 26; ctx.fillStyle = g; ctx.fillText(b.text, 0, 0); ctx.shadowBlur = 0;
+    if (b.sub) { ctx.font = `700 ${fs * 0.42}px ui-sans-serif, system-ui, sans-serif`; ctx.fillStyle = '#eef2fb'; ctx.fillText(b.sub, 0, fs * 0.82); }
+    ctx.restore();
+  }
+}
+function nearMiss(b) {
+  let best = Infinity;
+  for (const h of hist) {
+    if (h.t < b.start - 1 || h.t > b.end + 0.5) continue;
+    const d = h.p < b.lo ? b.lo - h.p : h.p >= b.hi ? h.p - b.hi : 0;
+    if (d < best) best = d;
+  }
+  return best <= band * 0.6;
+}
+const FLAME = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13.5 1.5c.4 3-1.3 4.6-2.8 6.3C9 9.6 7.5 11.2 7.5 14a4.5 4.5 0 0 0 9 0c0-1.5-.6-2.6-1.4-3.6.1 1.2-.4 2-1.1 2.3.5-3.3-.6-6.7-.5-11.2z"/><path d="M12 22a6 6 0 0 1-6-6c0-1.7.8-3.1 1.7-4.2C8.4 14.5 10 16 12 16s3.6-1.5 4.3-4.2C17.2 12.9 18 14.3 18 16a6 6 0 0 1-6 6z" opacity=".55"/></svg>';
+function renderStreak(popIt) {
+  const el = $('streak'); el.className = 'streak' + (streak >= 2 ? ' on' : '');
+  el.innerHTML = FLAME + '<span>RACHA ×' + streak + '</span>'; el.title = 'Mejor racha: ' + bestStreak;
+  if (popIt && streak >= 2) { void el.offsetWidth; el.classList.add('pop'); }
+}
+const SPK = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/>';
+function renderMute() { $('mute').className = 'icon' + (muted ? ' muted' : ''); $('mute').innerHTML = SPK + (muted ? '<path d="m22 9-6 6M16 9l6 6"/></svg>' : '<path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>'); }
 
 // ---------- UI ----------
 function renderTabs() {
@@ -68,7 +195,8 @@ function logResult(bet) {
   $('log').prepend(d);
   while ($('log').children.length > 5) $('log').lastChild.remove();
 }
-renderTabs(); renderStakes(); renderBal(); renderStats();
+renderTabs(); renderStakes(); renderBal(); renderStats(); renderStreak(); renderMute();
+$('mute').onclick = () => { muted = !muted; localStorage.setItem('tl.mute', muted ? '1' : '0'); renderMute(); if (!muted) { audio(); sfx.tap(3); } };
 $('reset').onclick = () => {
   if (bets.some((b) => b.status === 'open')) return toast('Espera a que terminen tus apuestas abiertas', 'l');
   balance = START_BAL; wins = losses = pnl = 0; renderBal(); renderStats(); toast('Saldo reiniciado a $1,000');
@@ -118,8 +246,24 @@ function resolve(prev, cur) {
 }
 function settle(b, s) {
   b.status = s; b.settledAt = now();
-  if (s === 'won') { balance += b.stake * b.mult; wins++; pnl += b.stake * (b.mult - 1); renderBal('up'); }
-  else { losses++; pnl -= b.stake; }
+  const L = layout(), cx = xOf(L, b.start) + L.cw / 2, cy = yOf(b.hi) + RH / 2, profit = b.stake * (b.mult - 1);
+  if (s === 'won') {
+    balance += b.stake * b.mult; wins++; pnl += profit; streak++; bestStreak = Math.max(bestStreak, streak); renderBal('up');
+    const big = b.mult >= 8, mega = b.mult >= 25;
+    burst(cx, cy, { n: big ? 70 : 34, hue: 140, speed: big ? 420 : 300, life: 0.9, size: big ? 4 : 3 }); burst(cx, cy, { n: 18, hue: 50, speed: 220, light: 75 });
+    ring(cx, cy, 140, big ? 1.8 : 1);
+    if (big) { confetti(cx, cy, mega ? 160 : 90); shake(mega ? 16 : 9); showBanner(mega ? 'MEGA WIN!' : 'BIG WIN!', '+' + fmt$(profit) + '  ·  ' + b.mult.toFixed(1) + 'x', mega ? 300 : 140, true); }
+    else shake(3 + Math.min(b.mult, 6));
+    sfx.win(b.mult, streak); buzz(big ? [30, 40, 80] : 25);
+    if ([3, 5, 7, 10, 15, 20].includes(streak)) { setTimeout(() => sfx.streak(streak), 380); if (!big) showBanner('RACHA ×' + streak, 'sigue así', 28, false); }
+    renderStreak(true);
+  } else {
+    losses++; pnl -= b.stake; const near = nearMiss(b), had = streak; streak = 0;
+    burst(cx, cy, { n: 16, hue: 350, speed: 140, life: 0.8, grav: 520, size: 2.6, light: 60 });
+    if (near) showBanner('¡POR POCO!', null, 38, false);
+    else if (had >= 3) showBanner('Racha perdida', null, 350, false);
+    sfx.lose(near); buzz(near ? [20, 30, 20] : 15); renderStreak(false);
+  }
   renderStats(); logResult(b);
 }
 setInterval(() => {
@@ -167,6 +311,7 @@ function draw() {
   const L = layout();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
+  if (shakeMag > 0) ctx.translate((Math.random() - 0.5) * shakeMag, (Math.random() - 0.5) * shakeMag);
   if (!last) return;
   center += (last.p - center) * 0.08;
   if (L.t - boardAt > 1) recompute(L);
@@ -229,6 +374,8 @@ function draw() {
     const x0 = xOf(L, b.start), y = yOf(b.hi), age = b.settledAt ? L.t - b.settledAt : 0;
     const col = b.status === 'won' ? '#4ade80' : b.status === 'lost' ? '#fb7185' : '#ffffff';
     const alpha = b.status === 'open' ? 1 : Math.max(0, 1 - age / 4);
+    const popK = b.placedAt ? Math.max(0, 1 - (L.t - b.placedAt) / 0.32) : 0, sc = 1 + 0.3 * popK * popK;
+    ctx.save(); ctx.translate(x0 + cw / 2, y + RH / 2); ctx.scale(sc, sc); ctx.translate(-(x0 + cw / 2), -(y + RH / 2));
     ctx.globalAlpha = alpha;
     ctx.shadowColor = col; ctx.shadowBlur = b.status === 'open' ? 12 : 18;
     rr(x0 + g + 0.5, y + g + 0.5, cw - 2 * g - 1, RH - 2 * g - 1, rad);
@@ -236,6 +383,8 @@ function draw() {
     ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = col; ctx.font = '700 ' + Math.max(10.5, Math.min(13, cw / 5.2)) + 'px ui-sans-serif, system-ui, sans-serif';
     ctx.fillText(b.status === 'open' ? '$' + b.stake + '·' + fmtMult(b.mult) : b.status === 'won' ? '✓' : '✗', x0 + cw / 2, y + RH / 2 + 0.5);
+    ctx.restore();
+    ctx.globalAlpha = alpha;
     if (b.status === 'won' && age < 1.4) { // expanding ring + floating payout
       ctx.globalAlpha = 1 - age / 1.4; ctx.lineWidth = 2; ctx.strokeStyle = '#4ade80';
       ctx.beginPath(); ctx.arc(x0 + cw / 2, y + RH / 2, 10 + age * 55, 0, 7); ctx.stroke();
@@ -289,8 +438,9 @@ function draw() {
   const tag = fmtPrice(last.p), tagW = ctx.measureText(tag).width + 18;
   rr(W - tagW - 4, yLast - 11, tagW, 22, 6); ctx.fillStyle = '#5ef2d0'; ctx.fill();
   ctx.fillStyle = '#04120e'; ctx.font = '700 11.5px ui-sans-serif, system-ui, sans-serif'; ctx.fillText(tag, W - 13, yLast + 0.5);
+  drawFx();
 }
-function frame() { draw(); requestAnimationFrame(frame); }
+function frame(ts) { const dt = Math.min(0.05, ((ts || performance.now()) - lastFrameAt) / 1000); lastFrameAt = ts || performance.now(); stepFx(dt); draw(); requestAnimationFrame(frame); }
 
 // ---------- input ----------
 function cellAt(x, y) {
@@ -305,10 +455,14 @@ cv.addEventListener('pointerdown', (e) => {
   if (!c || e.clientY < TOP + 28) return;
   const cell = board.get(c.k + ':' + c.r), t = now();
   if (!cell || c.k * SLOT < t + LOCK) return;
-  if (balance < stake) return toast('Saldo insuficiente para $' + stake, 'l');
+  audio();
+  if (balance < stake) { sfx.error(); return toast('Saldo insuficiente para $' + stake, 'l'); }
   if (bets.some((b) => b.status === 'open' && b.k === c.k && b.r === c.r)) return;
   balance -= stake; renderBal('down');
-  bets.push({ id: nextId++, k: c.k, r: c.r, start: c.k * SLOT, end: (c.k + 1) * SLOT, lo: c.r * band, hi: (c.r + 1) * band, stake, mult: cell.m, status: 'open' });
+  bets.push({ id: nextId++, k: c.k, r: c.r, start: c.k * SLOT, end: (c.k + 1) * SLOT, lo: c.r * band, hi: (c.r + 1) * band, stake, mult: cell.m, status: 'open', placedAt: t });
+  const L = layout(), px = xOf(L, c.k * SLOT) + L.cw / 2, py = yOf((c.r + 1) * band) + RH / 2, h = hue(cell.m);
+  burst(px, py, { n: 14 + Math.min(14, Math.round(cell.m)), hue: h, speed: 200, life: 0.55, size: 2.6 }); ring(px, py, h, 0.8);
+  sfx.tap(cell.m); buzz(10); if (cell.m >= 15) shake(2.5);
 });
 function resize() {
   dpr = window.devicePixelRatio || 1; W = innerWidth; H = innerHeight;
@@ -317,5 +471,5 @@ function resize() {
   cv.width = W * dpr; cv.height = H * dpr;
 }
 addEventListener('resize', resize); addEventListener('load', resize); resize();
-connect(); frame();
-window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, sigma: vol.sigma, wins, losses }; } };
+connect(); requestAnimationFrame(frame);
+window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx } };

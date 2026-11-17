@@ -44,6 +44,10 @@
   .bal b { font-size:18px; font-weight:700; }
   .bal.up { background:rgba(74,222,128,.14); border-color:rgba(74,222,128,.5); }
   .bal.down { background:rgba(251,113,133,.12); border-color:rgba(251,113,133,.45); }
+  .streak { display:none; align-items:center; gap:6px; padding:5px 11px; border-radius:99px; font-weight:800; font-size:13px; color:#ffd36b; border:1px solid rgba(255,190,70,.45); background:linear-gradient(135deg,rgba(255,150,40,.25),rgba(255,80,80,.18)); box-shadow:0 0 18px rgba(255,150,40,.25); }
+  .streak.on { display:flex; } .streak.pop { animation:spop .45s cubic-bezier(.2,1.6,.4,1); } .streak svg { width:15px; height:15px; }
+  @keyframes spop { 0% { transform:scale(.6); } 60% { transform:scale(1.25); } 100% { transform:scale(1); } }
+  .icon.muted { color:var(--loss); }
   .icon { width:34px; height:34px; display:grid; place-items:center; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--dim); cursor:pointer; font:600 15px inherit; font-family:inherit; }
   .icon:hover { color:var(--text); border-color:rgba(255,255,255,.2); }
 
@@ -88,9 +92,11 @@
   <div class="tabs" id="tabs"></div>
   <div class="price"><b id="price">—</b><small id="chg"></small></div>
   <div class="live" id="live"><i></i><span id="livetxt">CONECTANDO</span></div>
+  <div class="streak" id="streak"></div>
   <div class="grow"></div>
   <div class="stakes" id="stakes"></div>
   <div class="bal" id="balbox"><small>Saldo</small><b id="bal">—</b></div>
+  <button class="icon" id="mute" title="Sonido"></button>
   <button class="icon" id="reset" title="Reiniciar saldo a $1,000">↺</button>
   <button class="icon" id="helpbtn" title="Cómo jugar">?</button>
 </header>
@@ -102,6 +108,6 @@
 <div id="toast" class="card"></div>
 <div id="help" class="card"><div><b>Cómo jugar.</b> Toca una casilla: si el precio la toca dentro de su columna de tiempo, cobras <b>apuesta × multiplicador</b>. Más lejos del precio paga más. Saldo ficticio, precio real.</div><button id="helpok">Entendido</button></div>
 <div id="foot">Precios en vivo de Coinbase</div>
-<script type="module" src="main.js?v=3"></script>
+<script type="module" src="main.js?v=4"></script>
 </body>
 </html>
