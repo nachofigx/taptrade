@@ -1,4 +1,4 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet, niceBand } from './engine.js?v=6';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=7';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -225,9 +225,19 @@ function connect() {
   };
   ws.onclose = () => { wsTimer = setTimeout(connect, 2000); setLive(false, 'RECONECTANDO'); };
 }
+// Row height in price units, chosen so the cells the price can realistically reach (~60 s out) fill most of the screen.
+function pickBand(S, sigma) {
+  const reach = 2.4 * sigma * S * Math.sqrt(60);              // price distance reachable with ~1% probability
+  const rows = Math.max(8, (H - TOP) / RH) * 0.8;
+  const target = Math.max((2 * reach) / rows, S * 1e-6);
+  const e = Math.floor(Math.log10(target));
+  let best = 1, bd = Infinity;
+  for (const c of [1, 2, 5, 10]) { const d = Math.abs(Math.log((c * 10 ** e) / target)); if (d < bd) { bd = d; best = c * 10 ** e; } }
+  return best;
+}
 function onTick(t, p) {
   const cur = { t, p };
-  if (!last) { band = niceBand(p); center = p; first = p; $('msg').style.display = 'none'; setLive(true, 'EN VIVO'); }
+  if (!last) { band = pickBand(p, vol.sigma); center = p; first = p; $('msg').style.display = 'none'; setLive(true, 'EN VIVO'); }
   const prev = last || cur;
   hist.push(cur);
   while (hist.length > 4000 || (hist.length && t - hist[0].t > 600)) hist.shift();
@@ -268,8 +278,14 @@ function settle(b, s) {
   }
   renderStats(); logResult(b);
 }
+let lastRebalance = 0;
 setInterval(() => {
   if (!last) return;
+  // re-fit the row height to volatility, but only when no bet is on screen (bets are anchored to the row grid)
+  if (bets.length === 0 && now() - lastRebalance > 4) {
+    lastRebalance = now(); const nb = pickBand(last.p, vol.sigma), q = nb / band;
+    if (q > 1.6 || q < 0.62) { band = nb; boardAt = 0; }
+  }
   resolve(last, { t: now(), p: last.p });
   bets = bets.filter((b) => b.status === 'open' || now() - b.settledAt < 4);
   if (now() - lastTickAt > 8) setLive(false, 'SIN DATOS');

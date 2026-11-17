@@ -43,13 +43,14 @@ function walks() {
 
 // EWMA estimate of volatility, per sqrt(second), in log-return terms.
 export class Vol {
-  constructor(init = 0.00015) { this.v = init * init; this.lastT = null; this.lastP = null; }
+  constructor(init = 0.00015) { this.v = init * init; this.lastT = null; this.lastP = null; this.n = 0; }
   add(t, p) {
     if (this.lastT === null) { this.lastT = t; this.lastP = p; return; }
     const dt = t - this.lastT;
     if (dt < 1) return;
     const r = Math.log(p / this.lastP);
-    const a = 1 - Math.exp(-dt / 30);
+    this.n++;
+    const a = Math.max(1 - Math.exp(-dt / 30), 1 / (this.n + 1)); // learn fast at first, then EWMA
     this.v = (1 - a) * this.v + a * (r * r) / dt;
     this.lastT = t; this.lastP = p;
   }
