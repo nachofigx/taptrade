@@ -1,6 +1,6 @@
 import { SLOT as SLOT0, LOCK as LOCK0, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=19';
-import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=19';
-import { FRAMES, TRAILS, TUNES, KINDS, KIND_LABEL, itemKey, owns, equip, itemName, SEASON_REWARDS, SEASON_LEVELS, seasonInfo, seasonSync, addSeasonXP, seasonClaimable, seasonClaim, rollChest, GOLD, goldGap, goldTier, FLASH, flashGap, flashXP, flashResult, pickLine, buildClip, clipPriceAt, grant } from './extras.js?v=17';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, todayStr, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=19';
+import { KINDS, KIND_LABEL, itemKey, parseKey, owns, equip, itemName, SEASON_REWARDS, SEASON_LEVELS, seasonInfo, seasonSync, addSeasonXP, seasonClaimable, seasonClaim, rollChest, GOLD, goldGap, goldTier, FLASH, flashGap, flashXP, flashResult, pickLine, buildClip, clipPriceAt, grant } from './extras.js?v=17';
 import { DEFAULT_IND, sma, ema, rsi, pushTick, holdResample, gaussSmooth } from './indicators.js?v=19';
 
 const $ = (id) => document.getElementById(id);
@@ -108,14 +108,25 @@ const sfx = {
     notes.forEach((x, i) => { tone(semi(root, x), t + i * 0.06, 0.42, { type: 'triangle', gain: 0.14 }); tone(semi(root, x) * 2, t + i * 0.06, 0.26, { gain: 0.05 }); });
     noise(t, 0.4, 0.09, 5000, 11000); if (tier === 'gold') { tone(70, t, 0.55, { gain: 0.3, slide: 0.5 }); noise(t + 0.1, 0.7, 0.1, 400, 9000); }
   },
+  golden() { if (!audio()) return; const t = actx.currentTime; [0, 4, 7, 12, 16, 19, 24, 28].forEach((x, i) => { tone(semi(523, x), t + i * 0.07, 0.5, { type: 'triangle', gain: 0.13 }); tone(semi(523, x) * 2, t + i * 0.07, 0.3, { gain: 0.04 }); }); noise(t, 0.9, 0.08, 3000, 12000); tone(70, t, 0.5, { gain: 0.25, slide: 0.5 }); },
+  chest() { if (!audio()) return; const t = actx.currentTime; for (let i = 0; i < 6; i++) tone(90 + (i % 2) * 25, t + i * 0.09, 0.08, { type: 'square', gain: 0.07 }); noise(t + 0.5, 0.25, 0.1, 600, 2400); },
+  flashStart() { if (!audio()) return; const t = actx.currentTime; [0, 7, 12].forEach((x, i) => tone(semi(880, x), t + i * 0.08, 0.2, { type: 'square', gain: 0.05 })); },
   error() { if (!audio()) return; const t = actx.currentTime; tone(150, t, 0.16, { type: 'square', gain: 0.06, slide: 0.7 }); },
 };
 const setSlowFilter = (on) => { if (lp && actx) lp.frequency.setTargetAtTime(on ? 700 : 20000, actx.currentTime, 0.07); };
 const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
 
 // ---------- background music: generated live (synthwave-style loop), no audio files ----------
-const BPM = 104, MSTEP = 60 / BPM / 4;       // 16th-note step in seconds
-const CHORDS = [{ r: 110, t: [0, 3, 7] }, { r: 87.31, t: [0, 4, 7] }, { r: 130.81, t: [0, 4, 7] }, { r: 98, t: [0, 4, 7] }]; // Am F C G
+const MIN = [0, 3, 7], MAJ = [0, 4, 7];
+const TUNE_DEFS = { // chord roots in Hz (bass register), arp waveform, tempo
+  synth:  { bpm: 104, wave: 'square',   chords: [{ r: 110, t: MIN }, { r: 87.31, t: MAJ }, { r: 130.81, t: MAJ }, { r: 98, t: MAJ }] },      // Am F C G
+  chill:  { bpm: 84,  wave: 'triangle', chords: [{ r: 73.42, t: MIN }, { r: 116.54, t: MAJ }, { r: 87.31, t: MAJ }, { r: 130.81, t: MAJ }] },  // Dm Bb F C
+  arcade: { bpm: 128, wave: 'square',   chords: [{ r: 130.81, t: MAJ }, { r: 98, t: MAJ }, { r: 110, t: MIN }, { r: 87.31, t: MAJ }] },      // C G Am F
+  night:  { bpm: 96,  wave: 'sawtooth', chords: [{ r: 82.41, t: MIN }, { r: 130.81, t: MAJ }, { r: 98, t: MAJ }, { r: 73.42, t: MAJ }] },     // Em C G D
+};
+let BPM = 104, MSTEP = 60 / BPM / 4, CHORDS = TUNE_DEFS.synth.chords, ARPW = 'square';       // MSTEP = 16th-note step in seconds
+function applyTune() { const d = TUNE_DEFS[owns(prof, 'tune', prof.cosm.tune) ? prof.cosm.tune : 'synth']; BPM = d.bpm; MSTEP = 60 / BPM / 4; CHORDS = d.chords; ARPW = d.wave; }
+applyTune();
 const ARP = [0, 1, 2, 1, 2, 1, 0, 2];
 let musicOn = prof.settings.music, musicGain = null, musicTimer = 0, mStep = 0, mNext = 0, musicNotes = 0;
 function musicBus() {
@@ -147,7 +158,7 @@ function musicStep(i, t) {
   if (k % 4 === 2 || (hot && k % 2 === 1)) mNoise(t, 0.05, k % 4 === 2 ? 0.075 : 0.04, 8500, 'highpass');       // hats
   if (k === 0 || k === 3 || k === 6) mTone(ch.r, t, MSTEP * 2.3, 'sawtooth', 0.2, 430);                          // bass
   const arpHz = ch.r * 4 * Math.pow(2, ch.t[ARP[k] % 3] / 12) * (hot && k % 2 ? 2 : 1);
-  mTone(arpHz, t, MSTEP * 0.95, 'square', hot ? 0.05 : 0.036, 2600);                                              // arpeggio
+  mTone(arpHz, t, MSTEP * 0.95, ARPW, (hot ? 0.05 : 0.036) * (ARPW === 'sawtooth' ? 0.7 : 1), 2600);                                              // arpeggio
   if (k === 0) for (const semi of ch.t) for (const det of [-6, 6]) { const f = ch.r * 2 * Math.pow(2, semi / 12), d = f * Math.pow(2, det / 1200); mTone(d, t, MSTEP * 8.2, 'sawtooth', 0.02, 900, 0.5); } // pad
 }
 function musicTick() {
@@ -173,7 +184,7 @@ const GIFT_TIERS = {
   gold:   { xp: 200, pMin: 0.025, pMax: 0.10, hue: 48,  c1: '#ffe680', c2: '#d29200', glow: 'rgba(255,210,74,1)',     ribbon: '#fff7cf', name: 'REGALO DORADO' },
 };
 function spawnGift(force, range) {
-  const t = now(), k0 = Math.ceil((t + 8) / SLOT), k1 = k0 + 6, roll = Math.random();
+  const t = now(), k0 = Math.ceil((t + LOCK + 5) / SLOT), k1 = k0 + Math.ceil(30 / SLOT), roll = Math.random();
   const tier = force || (roll < 0.6 ? 'bronze' : roll < 0.9 ? 'silver' : 'gold'), T = GIFT_TIERS[tier], [pMin, pMax] = range || [T.pMin, T.pMax];
   const taken = new Set(gifts.filter((g) => g.status === 'open').map((g) => g.k + ':' + g.r)), cands = [];
   for (const [key, c] of board) {
@@ -182,7 +193,7 @@ function spawnGift(force, range) {
   }
   if (!cands.length) return false;
   const [k, r] = cands[Math.floor(Math.random() * cands.length)];
-  const g = { id: nextId++, p0: board.get(k + ':' + r).p, k, r, start: k * SLOT, end: (k + 1) * SLOT, lo: r * band, hi: (r + 1) * band, tier, xp: T.xp, status: 'open', spawnedAt: t, near: 0 };
+  const g = { id: nextId++, p0: board.get(k + ':' + r).p, k, r, start: k * SLOT, end: (k + 1) * SLOT, lo: r * band, hi: (r + 1) * band, tier, xp: T.xp, mult: ghMult(), status: 'open', spawnedAt: t, near: 0 };
   gifts.push(g);
   const L = layout(), cx = xOf(L, g.start) + L.cw / 2, cy = yOf(g.hi) + RH / 2;
   ring(cx, cy, T.hue, 1.2); burst(cx, cy, { n: 18, hue: T.hue, speed: 160, life: 0.7, grav: -40, size: 2.6, light: 78 }); sfx.giftSpawn();
@@ -194,9 +205,10 @@ function claimGift(g) {
   burst(cx, cy, { n: 50, hue: T.hue, speed: 380, life: 1, size: 3.8 }); burst(cx, cy, { n: 20, hue: 50, speed: 240, light: 80 }); ring(cx, cy, T.hue, 1.6);
   if (g.tier !== 'bronze') confetti(cx, cy, g.tier === 'gold' ? 100 : 45);
   shake(g.tier === 'gold' ? 11 : g.tier === 'silver' ? 6 : 4); sfx.gift(g.tier); buzz([20, 30, 60]);
-  prof.stats.gifts = (prof.stats.gifts || 0) + 1;
-  showBanner(g.tier === 'gold' ? '¡REGALO DORADO!' : '¡REGALO!', '+' + g.xp + ' XP', T.hue, g.tier === 'gold');
-  addXP(g.xp); unlock('gift_1'); if (prof.stats.gifts >= 10) unlock('gift_10'); if (g.tier === 'gold') unlock('gift_gold'); persist();
+  prof.stats.gifts = (prof.stats.gifts || 0) + 1; const xp = g.xp * (g.mult || 1);
+  if (gh.on) { gh.caught++; prof.stats.goldCatches++; if (prof.stats.goldCatches >= 5) unlock('golden_5'); }
+  showBanner(g.tier === 'gold' ? '¡REGALO DORADO!' : '¡REGALO!', '+' + xp + ' XP' + (g.mult > 1 ? ' (×' + g.mult + ')' : ''), T.hue, g.tier === 'gold'); if (g.tier === 'gold') say('gold', 2);
+  addXP(xp, true); unlock('gift_1'); if (prof.stats.gifts >= 10) unlock('gift_10'); if (g.tier === 'gold') unlock('gift_gold'); persist();
 }
 function drawGift(g, L, th, hasBet) {
   const cw = L.cw, x0 = xOf(L, g.start), y = yOf(g.hi), age = g.doneAt ? L.t - g.doneAt : 0, T = GIFT_TIERS[g.tier];
@@ -220,10 +232,232 @@ function drawGift(g, L, th, hasBet) {
   const bw = Math.min(24, cw * 0.4), bx = cx - bw / 2, by = cy - 13;
   ctx.fillStyle = T.c2; ctx.fillRect(bx + 1, by + 8, bw - 2, 12); ctx.fillStyle = T.c1; ctx.fillRect(bx - 1, by + 3, bw + 2, 6);
   ctx.fillStyle = T.ribbon; ctx.fillRect(cx - 2, by + 3, 4, 17); ctx.beginPath(); ctx.ellipse(cx - 4.5, by + 1.5, 4.5, 3, -0.5, 0, 7); ctx.ellipse(cx + 4.5, by + 1.5, 4.5, 3, 0.5, 0, 7); ctx.fill();
-  ctx.textAlign = 'center'; ctx.font = '900 12px Orbitron, system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4; ctx.fillText('+' + g.xp, cx, cy + 14); ctx.shadowBlur = 0;
-  if (g.status === 'won' && age < 1.4) { ctx.globalAlpha = Math.max(0, 1 - age / 1.4); ctx.font = '900 17px Orbitron, system-ui, sans-serif'; ctx.fillStyle = '#fff3a8'; ctx.shadowColor = T.glow; ctx.shadowBlur = 14; ctx.fillText('+' + g.xp + ' XP', cx, y - 6 - age * 40); }
+  ctx.textAlign = 'center'; ctx.font = '900 12px Orbitron, system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4; ctx.fillText('+' + g.xp * (g.mult || 1), cx, cy + 14); ctx.shadowBlur = 0;
+  if (g.status === 'won' && age < 1.4) { ctx.globalAlpha = Math.max(0, 1 - age / 1.4); ctx.font = '900 17px Orbitron, system-ui, sans-serif'; ctx.fillStyle = '#fff3a8'; ctx.shadowColor = T.glow; ctx.shadowBlur = 14; ctx.fillText('+' + g.xp * (g.mult || 1) + ' XP', cx, y - 6 - age * 40); }
   ctx.restore();
 }
+// ---------- extras: announcer, golden hour, flash challenge, daily chest, season pass, replay, turbo ----------
+// Announcer: browser speech synthesis, short Spanish lines, rate-limited so it never gets annoying. Toggle in the profile.
+let voiceAt = 0, voiceObj = null, spoken = 0, lastSaid = null;
+function say(key, prio = 1) {
+  if (!prof.settings.voice || muted || !('speechSynthesis' in window)) return;
+  const t = now(); if (t - voiceAt < (prio >= 2 ? 1.5 : 7)) return;
+  const text = pickLine(key); if (!text) return; voiceAt = t; spoken++; lastSaid = text;
+  try {
+    const u = new SpeechSynthesisUtterance(text); u.lang = 'es-ES'; u.rate = 1.1; u.pitch = 1.1; u.volume = Math.min(1, 0.9 * prof.settings.sfxVol);
+    if (!voiceObj) voiceObj = speechSynthesis.getVoices().find((v) => /^es/i.test(v.lang)) || null;
+    if (voiceObj) u.voice = voiceObj;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch {}
+}
+
+// Golden hour: for 30 s gifts fall much more often and all XP is doubled. Pure XP, never touches balance or odds.
+const gh = { on: false, until: 0, next: now() + GOLD.first, caught: 0, n: 0 };
+const ghMult = () => (gh.on ? GOLD.mult : 1);
+function startGolden() {
+  if (gh.on) return; gh.on = true; gh.until = now() + GOLD.dur; gh.caught = 0; gh.n++; nextGift = 0;
+  showBanner('¡HORA DORADA!', 'XP ×2 · lluvia de regalos · ' + GOLD.dur + ' s', 48, true); sfx.golden(); say('golden', 2); shake(6); buzz([30, 40, 30, 40, 80]);
+  confetti(W / 2, TOP + 40, 70); ring(W / 2, H * 0.4, 48, 2);
+}
+function endGolden() { gh.on = false; gh.next = now() + goldGap(); showBanner('FIN DE LA HORA DORADA', gh.caught ? gh.caught + ' regalo(s) atrapados' : null, 48, false); }
+function drawGolden(L) {
+  const left = Math.max(0, gh.until - L.t), pulse = 0.5 + 0.5 * Math.sin(L.t * 6);
+  const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.3, W / 2, H / 2, Math.max(W, H) * 0.72); vg.addColorStop(0, 'rgba(255,210,74,0)'); vg.addColorStop(1, `rgba(255,190,40,${0.2 + 0.12 * pulse})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  const pw = Math.min(300, W - 24), px = (W - pw) / 2, py = TOP + 10;
+  ctx.save(); rr(px, py, pw, 32, 16); ctx.fillStyle = 'rgba(40,24,0,0.88)'; ctx.shadowColor = 'rgba(255,210,74,0.9)'; ctx.shadowBlur = 16 + 8 * pulse; ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = '#ffd24a'; ctx.lineWidth = 1.5; ctx.stroke();
+  ctx.fillStyle = '#ffd24a'; rr(px + 4, py + 26, Math.max(0, (pw - 8) * left / GOLD.dur), 3, 1.5); ctx.fill();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.font = '400 14px Bungee, system-ui, sans-serif'; ctx.fillStyle = '#fff3a8'; ctx.fillText('HORA DORADA  ×2  ·  ' + Math.ceil(left) + 's', W / 2, py + 14); ctx.restore();
+}
+
+// Flash challenge: "up or down in 30 s?". Pure XP. Appears every few minutes; ignore it and nothing happens.
+const fc = { phase: 'idle', next: now() + FLASH.first, until: 0, dir: 0, p0: 0, streak: 0, asked: 0 };
+function startFlash() {
+  if (fc.phase !== 'idle' || !last) return; fc.phase = 'offer'; fc.until = now() + FLASH.choose; fc.asked++; sfx.flashStart(); renderFlash();
+}
+function pickFlash(dir) {
+  if (fc.phase !== 'offer' || !last) return; fc.phase = 'run'; fc.dir = dir; fc.p0 = last.p; fc.until = now() + FLASH.dur; prof.stats.flashTotal++; persist(); sfx.tap(4); renderFlash();
+}
+function endFlash() {
+  const res = flashResult(fc.p0, last ? last.p : fc.p0, fc.dir);
+  if (res === 'win') {
+    const xp = flashXP(fc.streak); fc.streak++; prof.stats.flashWins++; addXP(xp, true); persist(); sfx.ach(); say('flashWin', 2);
+    showBanner('¡LO VISTE VENIR!', '+' + xp + ' XP · reto relámpago ×' + fc.streak, 170, false); confetti(W / 2, TOP + 80, 40); if (prof.stats.flashWins >= 5) unlock('flash_5');
+  } else if (res === 'lose') { fc.streak = 0; sfx.lose(false); showBanner('Casi', 'el precio fue para el otro lado', 350, false); say('flashLose'); }
+  else { showBanner('Empate', 'el precio no se movió', 200, false); }
+  fc.phase = 'idle'; fc.next = now() + flashGap(); fc.result = res; $('flash').className = 'card ' + (res === 'win' ? 'good' : res === 'lose' ? 'bad' : '');
+  $('flash').innerHTML = '<div class="t"><span>RETO RELÁMPAGO</span><em>' + (res === 'win' ? '✓ ACERTASTE' : res === 'lose' ? '✗ FALLASTE' : 'EMPATE') + '</em></div>';
+  setTimeout(() => { if (fc.phase === 'idle') $('flash').classList.add('hide'); }, 1800);
+}
+function renderFlash() {
+  const el = $('flash'); el.className = 'card';
+  if (fc.phase === 'offer') {
+    el.innerHTML = `<div class="t"><span>⚡ RETO RELÁMPAGO</span><em>+${flashXP(fc.streak)} XP</em></div><div class="q">¿El precio estará más alto o más bajo en ${FLASH.dur} s?</div><div class="btns"><button class="up" data-d="1">▲ SUBE</button><button class="down" data-d="-1">▼ BAJA</button></div><div class="bar2" style="animation:shrink ${FLASH.choose}s linear forwards"></div>`;
+    el.querySelectorAll('[data-d]').forEach((b) => { b.onclick = () => pickFlash(+b.dataset.d); });
+  } else if (fc.phase === 'run') {
+    el.innerHTML = `<div class="t"><span>⚡ RETO RELÁMPAGO</span><em>+${flashXP(fc.streak)} XP</em></div><div class="q"><span class="pickd" style="color:${fc.dir > 0 ? 'var(--win)' : 'var(--loss)'}">${fc.dir > 0 ? '▲ SUBE' : '▼ BAJA'}</span> <span class="big2" id="flnow"></span></div><div class="bar2" style="animation:shrink ${FLASH.dur}s linear forwards"></div>`;
+  }
+}
+function tickFlash() {
+  const t = now();
+  if (fc.phase === 'idle' && last && !gh.on && t >= fc.next && !document.hidden) startFlash();
+  if (fc.phase === 'offer' && t >= fc.until) { fc.phase = 'idle'; fc.next = t + flashGap(); $('flash').classList.add('hide'); }
+  if (fc.phase === 'run') {
+    const d = last ? last.p - fc.p0 : 0, ok = flashResult(fc.p0, last ? last.p : fc.p0, fc.dir), n = $('flnow');
+    if (n) { n.textContent = (ok === 'win' ? 'vas ganando' : ok === 'lose' ? 'vas perdiendo' : 'empatado') + ' · ' + (d >= 0 ? '+' : '−') + Math.abs(d).toFixed(band < 0.01 ? 4 : band < 1 ? 3 : 2); n.style.color = ok === 'win' ? 'var(--win)' : ok === 'lose' ? 'var(--loss)' : 'var(--dim)'; }
+    if (t >= fc.until) endFlash();
+  }
+}
+
+// Daily chest: opens once per day, gives XP and sometimes a cosmetic.
+const CHEST_SVG = '<svg viewBox="0 0 120 110"><defs><linearGradient id="cb" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c8782a"/><stop offset="1" stop-color="#7a3d10"/></linearGradient><linearGradient id="cl" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e29a45"/><stop offset="1" stop-color="#a65a1a"/></linearGradient></defs><rect x="14" y="52" width="92" height="50" rx="8" fill="url(#cb)" stroke="#ffd24a" stroke-width="3"/><rect x="14" y="66" width="92" height="7" fill="#ffd24a" opacity=".85"/><g class="lid"><path d="M14 56V44a30 30 0 0 1 30-30h32a30 30 0 0 1 30 30v12z" fill="url(#cl)" stroke="#ffd24a" stroke-width="3"/><rect x="14" y="48" width="92" height="7" fill="#ffd24a" opacity=".85"/></g><rect x="52" y="58" width="16" height="20" rx="4" fill="#ffd24a" stroke="#7a5200" stroke-width="2"/><circle cx="60" cy="68" r="3" fill="#7a3d10"/></svg>';
+let chestRes = null;
+function itemSwatch(key) {
+  const { kind, id, def } = parseKey(key); if (!def) return '';
+  if (kind === 'frame') return `<span class="av fr-${id}">${avatarInner(prof.avatar, 40)}</span>`;
+  if (kind === 'trail') return `<svg viewBox="0 0 40 40"><path d="M3 30C12 30 14 12 22 14S30 8 37 6" fill="none" stroke="${def.c}" stroke-width="4" stroke-linecap="round" style="filter:drop-shadow(0 0 5px ${def.c})"/></svg>`;
+  return `<svg viewBox="0 0 24 24"><path d="M9 18V5l11-2v13" fill="none" stroke="${def.c}" stroke-width="2.2" stroke-linecap="round"/><circle cx="6" cy="18" r="3" fill="${def.c}"/><circle cx="17" cy="16" r="3" fill="${def.c}"/></svg>`;
+}
+const chestDue = () => prof.chest.day !== todayStr();
+function openChest() { if (!chestDue()) return toast('Hoy ya abriste tu cofre. Vuelve mañana'); chestRes = null; renderChest(); $('chest').classList.remove('hide'); }
+function renderChest(phase) {
+  const r = chestRes, b = $('chestbody');
+  b.innerHTML = `<h2>COFRE DIARIO</h2><div class="sub">Racha de ${prof.dayStreak} día(s). Cada día que vuelves, mejor premio. Cada 7 días, cosmético seguro.</div><div class="chestbox ${phase || (r ? 'open' : '')}" id="chestbox">${CHEST_SVG}</div>` +
+    (r ? `<div class="reveal"><div class="xp">+${r.xp} XP</div>${r.item ? `<div class="itemcard"><span class="swatch">${itemSwatch(r.item)}</span><span>¡Nuevo! ${itemName(r.item)}</span></div>` : r.bonus ? '<div class="sub">Ya tienes todo lo del cofre: XP doble.</div>' : ''}<div class="chips" style="justify-content:center;margin-top:12px">${r.item ? '<button class="btn pri" id="chesteq">Equipar ahora</button>' : ''}<button class="btn" id="chestclose">Genial</button></div></div>` : '<div class="chips" style="justify-content:center;margin-top:14px"><button class="btn pri" id="chestgo">ABRIR COFRE</button></div>');
+  if ($('chestgo')) $('chestgo').onclick = () => {
+    if (phase === 'shake') return; audio(); renderChest('shake'); sfx.chest();
+    setTimeout(() => {
+      chestRes = rollChest(prof, prof.dayStreak); prof.chest.day = todayStr(); prof.stats.chests++;
+      if (chestRes.item) grant(prof, chestRes.item); addXP(chestRes.xp, true); persist(); renderChest(); sfx.gift('gold'); say('chest', 2); buzz([20, 30, 60]);
+      confetti(W / 2, H * 0.45, 70); burst(W / 2, H * 0.45, { n: 40, hue: 48, speed: 380 }); if (prof.stats.chests >= 7) unlock('chest_7');
+    }, 650);
+  };
+  if ($('chestclose')) $('chestclose').onclick = closeChest;
+  if ($('chesteq')) $('chesteq').onclick = () => { const { kind, id } = parseKey(chestRes.item); applyEquip(kind, id); closeChest(); };
+}
+function closeChest() { $('chest').classList.add('hide'); }
+
+// Cosmetics: avatar frames, price trails, music themes.
+const frameCls = () => 'fr-' + (owns(prof, 'frame', prof.cosm.frame) ? prof.cosm.frame : 'none');
+function applyEquip(kind, id) {
+  if (!equip(prof, kind, id)) return; persist(); renderLevel(); if (kind === 'tune') applyTune();
+  if (!$('prof').classList.contains('hide')) renderProfile(); if (!$('wal').classList.contains('hide')) renderWallet();
+  toast('Equipado: ' + itemName(itemKey(kind, id)));
+}
+function unlockHint(kind, d) { const r = SEASON_REWARDS.find((x) => x.item === itemKey(kind, d.id)); return d.src === 'chest' ? 'Cofre diario' : r ? 'Pase · nivel ' + r.lvl : ''; }
+function collectionHTML() {
+  return Object.entries(KINDS).map(([kind, list]) => `<div class="eqrow"><span>${KIND_LABEL[kind]}</span>${list.map((d) => { const has = owns(prof, kind, d.id); return `<button style="--c:${d.c}" data-eq="${kind}:${d.id}" class="${prof.cosm[kind] === d.id ? 'on' : ''}" ${has ? '' : 'disabled'} title="${has ? '' : unlockHint(kind, d)}">${d.name}${has ? '' : ' · ' + unlockHint(kind, d)}</button>`; }).join('')}</div>`).join('');
+}
+
+// Season pass: 30 levels per calendar month, filled by all the XP you earn. Rewards are cosmetics and XP.
+function renderPassDot() { seasonSync(prof); $('passbtn').classList.toggle('has', seasonClaimable(prof).length > 0); }
+function rewardTile(r, st) {
+  const can = st === 'can';
+  const icon = r.item ? `<span class="swatch">${itemSwatch(r.item)}</span>` : '<span class="ri">+' + r.xp + '<small>XP</small></span>';
+  return `<div class="ptile ${st} ${r.item ? 'item' : ''}" data-lv="${r.lvl}"><span class="n">${r.lvl}</span><span class="ri">${icon}</span>${(st === 'got' ? '✓ ' : '') + (r.item ? itemName(r.item).split('«')[1].replace('»', '') + ' · +' + r.xp : st === 'got' ? 'Reclamado' : can ? 'RECLAMAR' : '')}</div>`;
+}
+function renderPass() {
+  const s = seasonSync(prof), li = seasonInfo(s.xp), can = seasonClaimable(prof), d = new Date(), end = new Date(d.getFullYear(), d.getMonth() + 1, 1), days = Math.max(1, Math.ceil((end - d) / 864e5));
+  $('passbody').innerHTML = `<div class="row"><div><h2>PASE DE TEMPORADA</h2><div class="sub">${d.toLocaleDateString('es', { month: 'long', year: 'numeric' }).toUpperCase()} · termina en ${days} día(s) · todo el XP que ganas suma</div></div><button class="btn" id="passclose">Cerrar</button></div>
+    <div class="xpbar"><u style="width:${li.maxed ? 100 : (100 * li.cur / li.need).toFixed(1)}%"></u></div>
+    <div class="row"><div class="sub">${li.maxed ? 'Pase completo' : 'Nivel ' + li.level + ' / ' + SEASON_LEVELS + ' · ' + li.cur + ' / ' + li.need + ' XP al siguiente'}</div><button class="btn pri" id="passall" ${can.length ? '' : 'disabled style="opacity:.4"'}>Reclamar todo${can.length ? ' (' + can.length + ')' : ''}</button></div>
+    <div class="passgrid">${SEASON_REWARDS.map((r) => rewardTile(r, s.claimed.includes(r.lvl) ? 'got' : r.lvl <= li.level ? 'can' : r.lvl === li.level + 1 ? 'reach' : 'lock')).join('')}</div>
+    <div class="hint2">Los cosméticos que ganes son tuyos para siempre. El pase se reinicia cada mes. Solo da XP y cosméticos: no cambia tu saldo ni las probabilidades.</div>`;
+  $('passclose').onclick = closePass; $('passall').onclick = () => claimLevels(can.map((r) => r.lvl));
+  $('passbody').querySelectorAll('.ptile.can').forEach((el) => { el.onclick = () => claimLevels([+el.dataset.lv]); });
+}
+function claimLevels(lvls) {
+  let xp = 0; const got = [];
+  for (const l of lvls) { const r = seasonClaim(prof, l); if (r) { xp += r.xp; if (r.item) got.push(r.item); } }
+  if (!xp) return; addXP(xp, true, true); persist(); sfx.ach(); got.forEach((k) => achToast('Recompensa del pase', itemName(k), 0)); toast('+' + xp + ' XP del pase'); renderPass(); renderPassDot();
+  if (got.length) { sfx.gift('silver'); confetti(W / 2, H * 0.4, 50); }
+}
+function openPass() { renderPass(); $('pass').classList.remove('hide'); }
+function closePass() { $('pass').classList.add('hide'); }
+
+// Replay: a slow-motion clip of your best wins, renderable to a video file in the browser.
+let lastClip = null;
+const rp = { clip: null, ct: 0, raf: 0, last: 0, hold: 0, parts: [], hit: false, rec: null, file: null };
+function recordWin(b, profit, tt) {
+  if (b.mult < 5) return;
+  const rec = { asset, mult: b.mult, stake: b.stake, profit, start: b.start, end: b.end, lo: b.lo, hi: b.hi, tHit: tt, at: Date.now() };
+  setTimeout(() => { // wait ~1 s so the clip includes what happens right after the touch
+    const clip = buildClip(hist, rec); if (!clip) return;
+    lastClip = clip; if (!prof.best || profit > prof.best.profit) { prof.best = clip; persist(); }
+  }, 1200);
+}
+function openReplay(clip) {
+  const c = clip || lastClip || prof.best; if (!c) return toast('Aún no tienes una jugada para repetir');
+  rp.clip = c; rp.file = null; $('rpsub').textContent = c.asset.replace('-', ' / ') + ' · $' + fmtStake(c.stake) + ' → ' + c.mult.toFixed(1) + 'x · +' + fmt$(c.profit);
+  $('rpsave').textContent = 'Grabar video'; $('rpsave').disabled = false; $('rp').classList.remove('hide'); closeProfile(); startReplay();
+}
+function closeReplay() { cancelAnimationFrame(rp.raf); rp.raf = 0; if (rp.rec && rp.rec.state !== 'inactive') { rp.rec.onstop = null; rp.rec.stop(); } rp.rec = null; $('rp').classList.add('hide'); }
+function startReplay() { rp.ct = 0; rp.hold = 0; rp.parts = []; rp.hit = false; rp.last = 0; cancelAnimationFrame(rp.raf); rp.raf = requestAnimationFrame(rpFrame); }
+function rpFrame(ts) {
+  const c = rp.clip; if (!c) return;
+  const dt = rp.last ? Math.min(0.05, (ts - rp.last) / 1000) : 0; rp.last = ts;
+  if (rp.ct < c.len) rp.ct = Math.min(c.len, rp.ct + dt * (rp.ct < c.hit - 0.9 ? 1.5 : rp.ct < c.hit + 0.8 ? 0.4 : 1.2)); else rp.hold += dt;
+  drawReplay(dt);
+  if (rp.hold < 1.8) rp.raf = requestAnimationFrame(rpFrame); else { rp.raf = 0; if (rp.rec && rp.rec.state === 'recording') rp.rec.stop(); }
+}
+function drawReplay(dt) {
+  const c = rp.clip, cvr = $('rpc'), g = cvr.getContext('2d'), Wc = cvr.width, Hc = cvr.height, th = theme(), hh = hue(c.mult);
+  const bg = g.createLinearGradient(0, 0, 0, Hc); bg.addColorStop(0, '#16092f'); bg.addColorStop(1, '#07030f'); g.fillStyle = bg; g.fillRect(0, 0, Wc, Hc);
+  let mn = c.lo, mx = c.hi; for (const p of c.pts) { if (p[1] < mn) mn = p[1]; if (p[1] > mx) mx = p[1]; }
+  const pad = Math.max((mx - mn) * 0.2, (c.hi - c.lo) * 0.5); mn -= pad; mx += pad;
+  const X = (t) => 70 + ((Wc - 140) * t) / Math.max(c.len, c.end + 0.3), Y = (p) => Hc - 90 - ((Hc - 190) * (p - mn)) / (mx - mn);
+  g.strokeStyle = 'rgba(255,255,255,0.05)'; g.lineWidth = 1; for (let i = 0; i <= 6; i++) { const y = Math.round(90 + ((Hc - 190) * i) / 6) + 0.5; g.beginPath(); g.moveTo(40, y); g.lineTo(Wc - 40, y); g.stroke(); }
+  const hot = rp.ct >= c.hit, x0 = X(c.start), x1 = X(c.end); let y0 = Y(c.hi), y1 = Y(c.lo); if (y1 - y0 < 16) { const m = (y0 + y1) / 2; y0 = m - 8; y1 = m + 8; }
+  g.save(); g.shadowColor = hot ? '#3dff8a' : `hsl(${hh},95%,60%)`; g.shadowBlur = hot ? 36 : 18; rr2(g, x0, y0, x1 - x0, y1 - y0, 10);
+  g.fillStyle = hot ? 'rgba(61,255,138,0.38)' : `hsla(${hh},90%,55%,0.22)`; g.fill(); g.lineWidth = 3; g.strokeStyle = hot ? '#3dff8a' : `hsl(${hh},95%,68%)`; g.stroke(); g.restore();
+  g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = '900 22px Orbitron, system-ui, sans-serif'; g.fillStyle = '#fff'; g.fillText(c.mult.toFixed(1) + 'x', (x0 + x1) / 2, (y0 + y1) / 2);
+  const pts = c.pts.filter((p) => p[0] <= rp.ct); const pn = clipPriceAt(c, rp.ct); pts.push([rp.ct, pn]);
+  if (pts.length > 1) {
+    const lg = g.createLinearGradient(X(pts[0][0]), 0, X(rp.ct), 0); lg.addColorStop(0, `rgba(${th.line},0.1)`); lg.addColorStop(1, '#ffffff');
+    g.beginPath(); pts.forEach((p, i) => (i ? g.lineTo(X(p[0]), Y(p[1])) : g.moveTo(X(p[0]), Y(p[1])))); g.strokeStyle = lg; g.lineWidth = 4; g.lineJoin = 'round'; g.lineCap = 'round'; g.shadowColor = `rgba(${th.glow},0.8)`; g.shadowBlur = 14; g.stroke(); g.shadowBlur = 0;
+  }
+  const hx = X(rp.ct), hy = Y(pn); g.fillStyle = th.dot; g.shadowColor = th.dot; g.shadowBlur = 22; g.beginPath(); g.arc(hx, hy, 8, 0, 7); g.fill(); g.shadowBlur = 0;
+  if (hot && !rp.hit) { rp.hit = true; for (let i = 0; i < 90; i++) { const a = Math.random() * 7, v = 120 + Math.random() * 420; rp.parts.push({ x: hx, y: hy, vx: Math.cos(a) * v, vy: Math.sin(a) * v, t: 0, max: 0.9 + Math.random() * 0.9, h: 40 + Math.random() * 130 }); } }
+  g.globalCompositeOperation = 'lighter';
+  for (let i = rp.parts.length - 1; i >= 0; i--) { const p = rp.parts[i]; p.t += dt * 0.6; if (p.t >= p.max) { rp.parts.splice(i, 1); continue; } p.vy += 380 * dt; p.x += p.vx * dt; p.y += p.vy * dt; g.fillStyle = `hsla(${p.h},95%,65%,${1 - p.t / p.max})`; g.beginPath(); g.arc(p.x, p.y, 3.2, 0, 7); g.fill(); }
+  g.globalCompositeOperation = 'source-over';
+  if (hot) { const k = Math.min(1, (rp.ct - c.hit) / 0.5 + rp.hold), pop = 1 + 0.4 * Math.max(0, 1 - k * 3) ** 2; g.save(); g.translate(Wc / 2, 64); g.scale(pop, pop); g.font = '400 54px Bungee, system-ui, sans-serif'; g.lineWidth = 8; g.lineJoin = 'round'; g.strokeStyle = 'rgba(5,8,16,0.9)'; g.strokeText('+' + fmt$(c.profit), 0, 0); g.shadowColor = '#3dff8a'; g.shadowBlur = 26; g.fillStyle = '#7dffb3'; g.fillText('+' + fmt$(c.profit), 0, 0); g.restore(); }
+  g.textAlign = 'left'; g.font = '700 22px Rajdhani, system-ui, sans-serif'; g.fillStyle = 'rgba(190,180,230,0.8)'; g.fillText('REPETICIÓN · ' + c.asset.replace('-', ' / ') + ' · apuesta $' + fmtStake(c.stake), 40, Hc - 34);
+  g.textAlign = 'right'; g.font = '400 24px Bungee, system-ui, sans-serif'; g.fillStyle = th.dot; g.fillText('TAPLINE', Wc - 40, Hc - 34);
+}
+function rr2(g, x, y, w, h, r) { g.beginPath(); g.moveTo(x + r, y); g.arcTo(x + w, y, x + w, y + h, r); g.arcTo(x + w, y + h, x, y + h, r); g.arcTo(x, y + h, x, y, r); g.arcTo(x, y, x + w, y, r); g.closePath(); }
+async function replayAction() {
+  if (rp.file) { // second tap: share or download the finished video (needs a fresh tap to be allowed to share)
+    const f = rp.file;
+    if (navigator.canShare && navigator.canShare({ files: [f] })) { try { await navigator.share({ files: [f], title: 'Tapline', text: '+' + fmt$(rp.clip.profit) + ' (' + rp.clip.mult.toFixed(1) + 'x) en Tapline' }); return; } catch (e) { if (e && e.name === 'AbortError') return; } }
+    const a = document.createElement('a'); a.href = URL.createObjectURL(f); a.download = f.name; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); return toast('Video descargado');
+  }
+  const cvr = $('rpc'); if (!window.MediaRecorder || !cvr.captureStream) return toast('Este navegador no puede grabar video', 'l');
+  const type = ['video/webm;codecs=vp9', 'video/webm', 'video/mp4'].find((t) => MediaRecorder.isTypeSupported(t)); if (!type) return toast('Este navegador no puede grabar video', 'l');
+  const chunks = [], rec = new MediaRecorder(cvr.captureStream(30), { mimeType: type, videoBitsPerSecond: 3e6 });
+  rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  rec.onstop = () => {
+    rp.rec = null; const blob = new Blob(chunks, { type: type.split(';')[0] }); rp.file = new File([blob], 'tapline-jugada.' + (type.startsWith('video/mp4') ? 'mp4' : 'webm'), { type: blob.type });
+    $('rpsave').disabled = false; $('rpsave').textContent = navigator.canShare && navigator.canShare({ files: [rp.file] }) ? 'Compartir video' : 'Descargar video'; $('rphint').textContent = 'Video listo (' + (blob.size / 1048576).toFixed(1) + ' MB).';
+  };
+  rp.rec = rec; rec.start(); $('rpsave').disabled = true; $('rpsave').textContent = 'Grabando…'; startReplay();
+}
+
+// Turbo: 2 s columns. Same pricing model, faster rounds. Can only change when nothing is open on the board.
+function setTurbo(on, quiet) {
+  if (!quiet && (bets.length || gifts.length)) return toast('Espera a que terminen tus apuestas', 'l');
+  SLOT = on ? TURBO.slot : SLOT0; LOCK = on ? TURBO.lock : LOCK0; prof.settings.turbo = on; persist();
+  board = new Map(); boardAt = 0; hover = null; gifts.length = 0; nextGift = now() + 6; $('turbo').classList.toggle('on', on);
+  if (!quiet) { toast(on ? 'MODO TURBO · columnas de ' + TURBO.slot + ' s' : 'Modo normal · columnas de ' + SLOT0 + ' s'); if (on) { sfx.level(); say('turbo', 2); } else sfx.tap(3); }
+}
+$('turbo').onclick = () => setTurbo(!prof.settings.turbo);
+$('passbtn').onclick = openPass;
+$('replay').onclick = () => openReplay();
+$('pass').addEventListener('pointerdown', (e) => { if (e.target === $('pass')) closePass(); });
+$('chest').addEventListener('pointerdown', (e) => { if (e.target === $('chest')) closeChest(); });
+$('rp').addEventListener('pointerdown', (e) => { if (e.target === $('rp')) closeReplay(); });
+$('rpclose').onclick = closeReplay; $('rpagain').onclick = () => startReplay(); $('rpsave').onclick = replayAction;
+if (prof.settings.turbo) setTurbo(true, true);
+renderPassDot();
 // ---------- visual effects ----------
 function burst(x, y, o = {}) {
   const { n = 16, hue = 170, speed = 240, life = 0.7, grav = 360, size = 3, light = 66, spread = Math.PI * 2, angle = 0 } = o;
@@ -365,12 +599,15 @@ function logResult(bet) {
 }
 // ---------- progression: XP, levels, achievements, daily mission, share ----------
 const persist = () => saveProfile(prof);
-function renderLevel() { $('lvlav').innerHTML = avatarInner(prof.avatar, 32); const li = levelInfo(prof.xp); $('lvlnum').textContent = 'NV ' + li.level; $('lvlbar').style.width = (100 * li.cur / li.need) + '%'; }
-function addXP(n) {
+function renderLevel() { $('lvlav').className = 'av ' + frameCls(); $('lvlav').innerHTML = avatarInner(prof.avatar, 32); const li = levelInfo(prof.xp); $('lvlnum').textContent = 'NV ' + li.level; $('lvlbar').style.width = (100 * li.cur / li.need) + '%'; }
+function addXP(n, raw, noSeason) { // raw = already final (achievement, chest and season rewards are not doubled by golden hour); noSeason = season rewards don't feed the season
+  if (!raw) n *= ghMult();
   const before = levelInfo(prof.xp).level; prof.xp += n; const after = levelInfo(prof.xp).level; persist(); renderLevel();
+  const sb = seasonInfo(seasonSync(prof).xp).level, sa = noSeason ? sb : addSeasonXP(prof, n); renderPassDot();
+  if (sa > sb) { achToast('Pase de temporada · nivel ' + sa, 'Tienes una recompensa por reclamar', 0); if (!$('pass').classList.contains('hide')) renderPass(); }
   if (after > before) {
     const unlocked = THEMES.filter((t) => t.lvl > before && t.lvl <= after).map((t) => 'Tema ' + t.name + ' desbloqueado');
-    showBanner('NIVEL ' + after, unlocked[0] || 'sigue subiendo', 48, true); sfx.level(); confetti(W / 2, H * 0.4, 90); buzz([20, 30, 20, 30, 60]);
+    showBanner('NIVEL ' + after, unlocked[0] || 'sigue subiendo', 48, true); sfx.level(); say('level', 2); confetti(W / 2, H * 0.4, 90); buzz([20, 30, 20, 30, 60]);
   }
 }
 function achToast(title, text, xp) {
@@ -379,7 +616,7 @@ function achToast(title, text, xp) {
 }
 function unlock(id) {
   if (prof.ach[id]) return; const a = ACHIEVEMENTS.find((x) => x.id === id); if (!a) return;
-  prof.ach[id] = Date.now(); persist(); achToast('Logro desbloqueado', a.name + ' — ' + a.desc, a.xp); sfx.ach(); addXP(a.xp);
+  prof.ach[id] = Date.now(); persist(); achToast('Logro desbloqueado', a.name + ' — ' + a.desc, a.xp); sfx.ach(); addXP(a.xp, true);
 }
 function missionEvent(type, val) {
   const mi = prof.mission; if (!mi || mi.done) return;
@@ -390,12 +627,12 @@ function missionEvent(type, val) {
   else if (mi.id === 'big10' && type === 'win' && val >= 10) mi.prog = 1;
   else if (mi.id === 'profit20' && type === 'pnl') mi.prog = Math.max(mi.prog, val);
   else return;
-  if (mi.prog >= def.target) { mi.done = true; achToast('Misión diaria cumplida', def.text, def.xp); sfx.ach(); addXP(def.xp); }
+  if (mi.prog >= def.target) { mi.done = true; achToast('Misión diaria cumplida', def.text, def.xp); sfx.ach(); addXP(def.xp, true); }
   persist();
 }
 function offerShare(profit, mult) {
-  lastBig = { profit, mult, asset }; const s = $('share'); s.classList.add('on');
-  clearTimeout(shareT); shareT = setTimeout(() => s.classList.remove('on'), 10000);
+  lastBig = { profit, mult, asset }; const s = $('share'), r = $('replay'); s.classList.add('on'); r.classList.add('on');
+  clearTimeout(shareT); shareT = setTimeout(() => { s.classList.remove('on'); r.classList.remove('on'); }, 12000);
 }
 async function shareCard() {
   const d = lastBig; if (!d) return toast('Aún no tienes una victoria grande para compartir');
@@ -418,7 +655,7 @@ function renderProfile() {
   const li = levelInfo(prof.xp), st = prof.stats, mi = prof.mission, def = mi && MISSIONS.find((x) => x.id === mi.id);
   const pct = st.bets ? Math.round((100 * st.wins) / Math.max(1, st.wins + st.losses)) : 0;
   $('profbody').innerHTML = `
-    <div class="row"><div class="who"><span class="av big">${avatarInner(prof.avatar, 84)}</span><div><input class="nameinp" id="nameInp" maxlength="14" value="${esc(prof.name)}" aria-label="Nombre"><h2 style="font-size:22px">NIVEL ${li.level}</h2><div class="sub">${li.cur} / ${li.need} XP · racha diaria de ${prof.dayStreak} día(s)</div></div></div><button class="btn" id="profclose">Cerrar</button></div>
+    <div class="row"><div class="who"><span class="av big ${frameCls()}">${avatarInner(prof.avatar, 84)}</span><div><input class="nameinp" id="nameInp" maxlength="14" value="${esc(prof.name)}" aria-label="Nombre"><h2 style="font-size:22px">NIVEL ${li.level}</h2><div class="sub">${li.cur} / ${li.need} XP · racha diaria de ${prof.dayStreak} día(s)</div></div></div><button class="btn" id="profclose">Cerrar</button></div>
     <div class="xpbar"><u style="width:${(100 * li.cur / li.need).toFixed(1)}%"></u></div>
     <h3>Avatar</h3>
     <div class="avgrid">${AVATAR_SEEDS.map((sd) => `<button class="avb ${prof.avatar.type === 'pixel' && prof.avatar.seed === sd ? 'on' : ''}" data-seed="${sd}" title="${sd}">${pixelAvatarSVG(sd, 54)}</button>`).join('')}
@@ -427,6 +664,12 @@ function renderProfile() {
     <h3>Sonido</h3>
     <div class="setrow"><label><input type="checkbox" id="setMusic" ${musicOn ? 'checked' : ''}> Música de fondo</label><input type="range" id="volMusic" min="0" max="100" value="${Math.round(prof.settings.musicVol * 100)}"></div>
     <div class="setrow"><label><input type="checkbox" id="setSfx" ${muted ? '' : 'checked'}> Efectos de sonido</label><input type="range" id="volSfx" min="0" max="100" value="${Math.round(prof.settings.sfxVol * 100)}"></div>
+    <div class="setrow"><label><input type="checkbox" id="setVoice" ${prof.settings.voice ? 'checked' : ''}> Voz del locutor (frases cortas en los momentos grandes)</label></div>
+    <h3>Colección</h3>
+    ${collectionHTML()}
+    <div class="sub">Se consiguen en el cofre diario y en el pase de temporada.</div>
+    <h3>Mejor jugada</h3>
+    ${prof.best ? `<div class="tile got" style="display:flex;align-items:center;gap:14px;justify-content:space-between"><div><b>+${fmt$(prof.best.profit)} · ${prof.best.mult.toFixed(1)}x</b>${prof.best.asset.replace('-', ' / ')} · ${new Date(prof.best.at).toLocaleDateString('es')}</div><button class="btn pri" id="bestplay">▶ Ver repetición</button></div>` : '<div class="sub">Gana una apuesta de 5x o más y tu mejor jugada quedará guardada aquí.</div>'}
     <h3>Misión de hoy</h3>
     <div class="tile ${mi && mi.done ? 'got' : ''}" style="opacity:1;border-color:rgba(44,245,210,.5)"><b>${def ? def.text : '—'}</b>${mi ? (mi.done ? 'Cumplida · +' + def.xp + ' XP' : (Number.isInteger(mi.prog) ? Math.min(mi.prog, def.target) : Math.min(mi.prog, def.target).toFixed(2)) + ' / ' + def.target + ' · recompensa ' + def.xp + ' XP') : ''}</div>
     <h3>Estadísticas</h3>
@@ -467,14 +710,16 @@ function renderWallet() {
     return `<div class="${cls}"><i>${ico}</i><span>${label}<small>${e.sig}… · ${d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</small></span><b>${e.amount >= 0 ? '+' : '−'}${fmt$(Math.abs(e.amount))}</b></div>`;
   }).join('');
   $('walbody').innerHTML = `
-    <div class="row"><div class="who"><span class="av big">${avatarInner(prof.avatar, 84)}</span><div><h2>WALLET</h2><div class="sub">${esc(prof.name)} · Solana Devnet (simulada)</div></div></div><button class="btn" id="walclose">Cerrar</button></div>
+    <div class="row"><div class="who"><span class="av big ${frameCls()}">${avatarInner(prof.avatar, 84)}</span><div><h2>WALLET</h2><div class="sub">${esc(prof.name)} · Solana Devnet (simulada)</div></div></div><button class="btn" id="walclose">Cerrar</button></div>
     <div class="walcard" style="margin-top:14px"><small>Saldo disponible</small><b class="big">${fmt$(balance)} <i>USDC ficticio</i></b>
       <div class="addr"><code title="${prof.wallet.addr}">${shortAddr(prof.wallet.addr)}</code><button class="btn" id="walcopy">Copiar dirección</button></div>
       <div class="warn">Wallet de práctica: la dirección y los fondos son ficticios. No guarda claves y no se conecta a ninguna red. No envíes dinero real aquí.</div></div>
     <h3>Depositar (ficticio)</h3><div class="chips">${[100, 500, 1000, 5000].map((n) => `<button class="btn" data-dep="${n}">+${fmt$(n).replace('.00', '')}</button>`).join('')}</div>
     <h3>Retirar (ficticio)</h3><div class="chips">${[100, 500, 1000].map((n) => `<button class="btn" data-wd="${n}">−${fmt$(n).replace('.00', '')}</button>`).join('')}<button class="btn" data-wd="all">Todo</button></div>
+    <h3>Saldo</h3><div class="chips"><button class="btn" id="walreset">Reiniciar saldo a $1,000</button></div>
     <h3>Actividad</h3><div class="ledger">${rows || '<div class="empty">Sin movimientos todavía.</div>'}</div>`;
   $('walclose').onclick = closeWallet;
+  $('walreset').onclick = () => $('reset').onclick();
   $('walcopy').onclick = async () => { try { await navigator.clipboard.writeText(prof.wallet.addr); toast('Dirección copiada (ficticia)'); } catch { toast('No pude copiar en este navegador', 'l'); } };
   $('walbody').querySelectorAll('[data-dep]').forEach((b) => { b.onclick = () => walletMove(+b.dataset.dep); });
   $('walbody').querySelectorAll('[data-wd]').forEach((b) => { b.onclick = () => walletMove(-(b.dataset.wd === 'all' ? balance : +b.dataset.wd)); });
@@ -500,17 +745,21 @@ function bindProfileExtras() {
   $('avup').onclick = () => $('avfile').click();
   $('setMusic').onchange = (e) => setMusic(e.target.checked);
   $('volMusic').oninput = (e) => { prof.settings.musicVol = e.target.value / 100; persist(); if (!musicOn && prof.settings.musicVol > 0) { setMusic(true); $('setMusic').checked = true; } setMusicVol(); };
+  $('setVoice').onchange = (e) => { prof.settings.voice = e.target.checked; persist(); if (e.target.checked) { lastSaid = null; voiceAt = 0; say('chest', 2); } else try { speechSynthesis.cancel(); } catch {} };
+  $('profbody').querySelectorAll('[data-eq]').forEach((b) => { b.onclick = () => { const [k, i] = b.dataset.eq.split(':'); applyEquip(k, i); }; });
+  if ($('bestplay')) $('bestplay').onclick = () => openReplay(prof.best);
   $('setSfx').onchange = (e) => { muted = !e.target.checked; localStorage.setItem('tl.mute', muted ? '1' : '0'); renderMute(); if (!muted) sfx.tap(3); };
   $('volSfx').oninput = (e) => { prof.settings.sfxVol = e.target.value / 100; persist(); if (master) master.gain.setTargetAtTime(0.55 * prof.settings.sfxVol, actx.currentTime, 0.03); };
   $('volSfx').onchange = () => sfx.tap(4);
 }
 $('lvl').onclick = openProfile; $('share').onclick = shareCard; $('music').onclick = () => { setMusic(!musicOn); };
 $('prof').addEventListener('pointerdown', (e) => { if (e.target === $('prof')) closeProfile(); });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeProfile(); closeWallet(); $('indpop').classList.add('hide'); } });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeProfile(); closeWallet(); closePass(); closeChest(); closeReplay(); $('indpop').classList.add('hide'); } });
 
 renderTabs(); renderStakes(); renderBal(); renderStats(); renderStreak(); renderMute(); renderMusic(); renderLevel();
 const dc = dailyCheck(prof); persist();
-if (dc) setTimeout(() => { achToast('Racha diaria · día ' + dc.streak, 'Vuelve mañana para seguir sumando', dc.xp); addXP(dc.xp); }, 1800);
+if (dc) setTimeout(() => { achToast('Racha diaria · día ' + dc.streak, 'Vuelve mañana para seguir sumando', dc.xp); addXP(dc.xp, true); }, 1800);
+if (chestDue()) setTimeout(() => { if ($('help').classList.contains('hide')) openChest(); else $('helpok').addEventListener('click', () => setTimeout(openChest, 600), { once: true }); }, 2600);
 $('mute').onclick = () => { muted = !muted; localStorage.setItem('tl.mute', muted ? '1' : '0'); renderMute(); if (!muted) { audio(); sfx.tap(3); } };
 $('reset').onclick = () => {
   if (bets.some((b) => b.status === 'open')) return toast('Espera a que terminen tus apuestas abiertas', 'l');
@@ -527,7 +776,7 @@ function setLive(ok, text) { $('live').className = 'live' + (ok ? ' ok' : ''); $
 function connect() {
   clearTimeout(wsTimer);
   if (ws) { ws.onclose = null; ws.close(); }
-  gifts.length = 0; nextGift = now() + 10;
+  gifts.length = 0; nextGift = now() + 10; if (fc.phase !== 'idle') { fc.phase = 'idle'; fc.next = now() + 20; $('flash').classList.add('hide'); }
   dispP = 0; bars = []; histGain = 1;   hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
   $('price').textContent = '—'; $('price').className = ''; $('chg').textContent = '';
   $('msg').style.display = 'block'; $('msg').textContent = 'Conectando al precio en vivo…'; setLive(false, 'CONECTANDO');
@@ -583,9 +832,10 @@ function settle(b, s, tt) {
     const big = b.mult >= 8, mega = b.mult >= 25;
     burst(cx, cy, { n: big ? 70 : 34, hue: 140, speed: big ? 420 : 300, life: 0.9, size: big ? 4 : 3 }); burst(cx, cy, { n: 18, hue: 50, speed: 220, light: 75 });
     ring(cx, cy, 140, big ? 1.8 : 1);
-    if (big) { confetti(cx, cy, mega ? 160 : 90); shake(mega ? 16 : 9); showBanner(mega ? 'MEGA WIN!' : 'BIG WIN!', '+' + fmt$(profit) + '  ·  ' + b.mult.toFixed(1) + 'x', mega ? 300 : 140, true); }
+    if (big) { say(mega ? 'mega' : 'big', 2); confetti(cx, cy, mega ? 160 : 90); shake(mega ? 16 : 9); showBanner(mega ? 'MEGA WIN!' : 'BIG WIN!', '+' + fmt$(profit) + '  ·  ' + b.mult.toFixed(1) + 'x', mega ? 300 : 140, true); }
     else shake(3 + Math.min(b.mult, 6));
     sfx.win(b.mult, streak); buzz(big ? [30, 40, 80] : 25);
+    if (streak === 3 || streak === 5 || streak === 10) say('streak' + streak, 2);
     if ([3, 5, 7, 10, 15, 20].includes(streak)) { setTimeout(() => sfx.streak(streak), 380); if (!big) showBanner('RACHA ×' + streak, 'sigue así', 28, false); }
     renderStreak(true);
     const hadLoss = lossRun; lossRun = 0; prof.stats.wins++; prof.stats.biggest = Math.max(prof.stats.biggest, profit); prof.stats.bestStreak = Math.max(prof.stats.bestStreak, streak);
@@ -596,15 +846,15 @@ function settle(b, s, tt) {
     if (hadLoss >= 3) unlock('comeback');
     if (balance >= 1500) unlock('rich');
     const cm = comboMap.get(b.k), cn = cm && now() - cm.t < 8 ? cm.n + 1 : 1; comboMap.set(b.k, { n: cn, t: now() });
-    if (cn >= 2) { unlock('combo_2'); sfx.combo(cn); shake(7); burst(cx, cy, { n: 40, hue: 300, speed: 380, life: 0.9 }); if (!big) showBanner('COMBO ×' + cn, 'misma columna', 300, false); }
+    if (cn >= 2) { unlock('combo_2'); say('combo', 2); sfx.combo(cn); shake(7); burst(cx, cy, { n: 40, hue: 300, speed: 380, life: 0.9 }); if (!big) showBanner('COMBO ×' + cn, 'misma columna', 300, false); }
     missionEvent('win', b.mult); if (streak >= 3) missionEvent('streak', streak); missionEvent('pnl', pnl);
-    if (big) offerShare(profit, b.mult);
+    recordWin(b, profit, tt); if (big) offerShare(profit, b.mult);
     persist();
   } else {
     losses++; pnl -= b.stake; const near = nearMiss(b), had = streak; streak = 0; lossRun++; prof.stats.losses++; addXP(2);
     if (near) { prof.stats.near++; if (prof.stats.near >= 5) unlock('near_5'); persist(); }
     burst(cx, cy, { n: 16, hue: 350, speed: 140, life: 0.8, grav: 520, size: 2.6, light: 60 });
-    if (near) showBanner('¡POR POCO!', null, 38, false);
+    if (near) { showBanner('¡POR POCO!', null, 38, false); say('near'); }
     else if (had >= 3) showBanner('Racha perdida', null, 350, false);
     sfx.lose(near); buzz(near ? [20, 30, 20] : 15); renderStreak(false);
   }
@@ -614,7 +864,10 @@ let lastRebalance = 0;
 setInterval(() => {
   if (!last) return;
   // re-fit the row height to volatility, but only when no bet is on screen (bets are anchored to the row grid)
-  if (last && now() >= nextGift && board.size && gifts.filter((g) => g.status === 'open').length < 2) { if (spawnGift()) nextGift = now() + 18 + Math.random() * 24; else nextGift = now() + 4; }
+  if (!gh.on && last && now() >= gh.next && fc.phase === 'idle' && !document.hidden) startGolden();
+  if (gh.on && now() >= gh.until) endGolden();
+  tickFlash();
+  if (last && now() >= nextGift && board.size && gifts.filter((g) => g.status === 'open').length < (gh.on ? GOLD.maxGifts : 2)) { if (spawnGift(gh.on ? goldTier() : undefined)) nextGift = now() + (gh.on ? GOLD.giftEvery[0] + Math.random() * (GOLD.giftEvery[1] - GOLD.giftEvery[0]) : 18 + Math.random() * 24); else nextGift = now() + 2; }
   if (bets.length === 0 && gifts.length === 0 && now() - lastRebalance > 4) {
     lastRebalance = now(); const nb = pickBand(last.p, vol.sigma), q = nb / band;
     if (q > 1.6 || q < 0.62) { band = nb; boardAt = 0; }
@@ -903,8 +1156,9 @@ function draw() {
     }
   }
   if (hist.length > 1) {
-    const lg = ctx.createLinearGradient(L.xNow - Wh, 0, L.xNow, 0);
-    lg.addColorStop(0, `rgba(${th.line},0)`); lg.addColorStop(0.35, `rgba(${th.line},0.35)`); lg.addColorStop(0.8, `rgba(${th.line},0.92)`); lg.addColorStop(1, '#ffffff');
+    const lg = ctx.createLinearGradient(L.xNow - Wh, 0, L.xNow, 0), trail = owns(prof, 'trail', prof.cosm.trail) ? prof.cosm.trail : 'none';
+    if (trail === 'rainbow') for (let i = 0; i <= 8; i++) lg.addColorStop(i / 8, `hsla(${(i * 45 + L.t * 70) % 360},95%,66%,${i === 0 ? 0 : 0.25 + 0.7 * i / 8})`);
+    else { lg.addColorStop(0, `rgba(${th.line},0)`); lg.addColorStop(0.35, `rgba(${th.line},0.35)`); lg.addColorStop(0.8, `rgba(${th.line},0.92)`); lg.addColorStop(1, '#ffffff'); }
     const pts = [[L.xNow, yLast]]; let px = L.xNow;
     if (ind.smooth) { // display-only smoothing: 0.2 s grid, linear slide into each tick, Gaussian sigma 1.0 s
       const STEP = 0.2, n = Math.max(2, Math.floor(reach / STEP)), { vals, from } = holdResample(hist, L.t - reach, STEP, n, 1.5), sm = gaussSmooth(vals, from, 5);
@@ -915,6 +1169,10 @@ function draw() {
     ctx.beginPath(); smoothPath(pts);
     ctx.strokeStyle = lg; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.shadowColor = `rgba(${th.glow},0.55)`; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
+    if (trail === 'comet') { // fat fiery glow behind the line, fading away from the head
+      const cg = ctx.createLinearGradient(L.xNow - Wh * 0.6, 0, L.xNow, 0); cg.addColorStop(0, 'rgba(255,120,30,0)'); cg.addColorStop(1, 'rgba(255,170,60,0.55)');
+      ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = cg; ctx.lineWidth = 9; ctx.shadowColor = 'rgba(255,130,30,0.9)'; ctx.shadowBlur = 22; ctx.stroke(); ctx.shadowBlur = 0; ctx.globalCompositeOperation = 'source-over';
+    }
   }
   drawIndicators(L, hx, hy, Wh, reach, indOn, rsiOn);
 
@@ -924,6 +1182,8 @@ function draw() {
   const pulse = 10 + 3 * Math.sin(L.t * 4);
   ctx.fillStyle = `rgba(${th.glow},0.18)`; ctx.beginPath(); ctx.arc(L.xNow, yLast, pulse, 0, 7); ctx.fill();
   ctx.fillStyle = th.dot; ctx.shadowColor = th.dot; ctx.shadowBlur = 14; ctx.beginPath(); ctx.arc(L.xNow, yLast, 5, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+
+  if (gh.on) drawGolden(L);
 
   // price axis (right) with a live tag
   ctx.textAlign = 'right'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
@@ -967,7 +1227,13 @@ function updateTension(t, dt) {
   if (was !== slow > 0.5) setSlowFilter(slow > 0.5);
   if (tension > 0.12 && t >= heartNext) { sfx.beat(tension); if (tension > 0.7) buzz(8); heartNext = t + 1 / (1.3 + 5 * tension); }
 }
-function frame(ts) { const dt = Math.min(0.05, ((ts || performance.now()) - lastFrameAt) / 1000); lastFrameAt = ts || performance.now(); updateTension(now(), dt); stepFx(dt * (1 - 0.7 * slow)); draw(); requestAnimationFrame(frame); }
+function trailFx(dt) { // cosmetic particle trails from the price head + golden-hour rain
+  if (!last) return; const L = layout(), tr = owns(prof, 'trail', prof.cosm.trail) ? prof.cosm.trail : 'none', yL = yOf(last.p);
+  if (tr === 'spark' && Math.random() < dt * 40) parts.push({ k: 'dot', x: L.xNow, y: yL + (Math.random() - 0.5) * 8, vx: -50 - Math.random() * 90, vy: (Math.random() - 0.5) * 70, t: 0, max: 0.9, size: 2.3, h: 48 + Math.random() * 12, light: 78, grav: 40 });
+  if (tr === 'ice' && Math.random() < dt * 34) parts.push({ k: 'dot', x: L.xNow, y: yL + (Math.random() - 0.5) * 6, vx: -40 - Math.random() * 60, vy: 20 + Math.random() * 60, t: 0, max: 1.1, size: 2.4, h: 195, light: 86, grav: 90 });
+  if (gh.on && Math.random() < dt * 34) parts.push({ k: 'dot', x: Math.random() * W, y: TOP + 40, vx: 0, vy: 40 + Math.random() * 120, t: 0, max: 1.5, size: 1.8 + Math.random() * 2, h: 48, light: 76, grav: 60 });
+}
+function frame(ts) { const dt = Math.min(0.05, ((ts || performance.now()) - lastFrameAt) / 1000); lastFrameAt = ts || performance.now(); updateTension(now(), dt); trailFx(dt); stepFx(dt * (1 - 0.7 * slow)); draw(); requestAnimationFrame(frame); }
 
 // ---------- input ----------
 function cellAt(x, y) {
@@ -994,7 +1260,7 @@ cv.addEventListener('pointerdown', (e) => {
 });
 function resize() {
   dpr = window.devicePixelRatio || 1; W = innerWidth; H = innerHeight;
-  TOP = document.querySelector('.bar').offsetHeight;
+  TOP = document.querySelector('.bar').offsetHeight; document.documentElement.style.setProperty('--top', TOP + 'px');
   RH = Math.max(40, Math.ceil(W / 32));   // keeps the 120 s pricing horizon on screen at any width
   cv.width = W * dpr; cv.height = H * dpr;
   placeAssetMark(); applyIndLayout();
@@ -1002,4 +1268,4 @@ function resize() {
 addEventListener('resize', resize); addEventListener('load', resize); resize();
 ['700 16px Rajdhani', '600 12px Rajdhani', '400 20px Bungee', '900 16px Orbitron'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
 connect(); requestAnimationFrame(frame);
-window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, bars: bars.length, nowX: nowX(), ind: prof.settings.ind, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift, bench: (n = 60) => { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, setInd: (patch) => { Object.assign(prof.settings.ind, patch); rebuildBars(); applyIndLayout(); } } };
+window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, bars: bars.length, nowX: nowX(), ind: prof.settings.ind, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, gold: { on: gh.on, left: gh.on ? gh.until - now() : 0, next: gh.next - now(), n: gh.n, caught: gh.caught }, flash: { phase: fc.phase, streak: fc.streak, wins: prof.stats.flashWins, asked: fc.asked, p0: fc.p0, dir: fc.dir, result: fc.result || null, next: fc.next - now() }, chestDue: chestDue(), chests: prof.stats.chests, season: { ...prof.season, level: seasonInfo(prof.season.xp).level, claimable: seasonClaimable(prof).length }, cosm: prof.cosm, slot: SLOT, lock: LOCK, turbo: prof.settings.turbo, voice: { on: prof.settings.voice, spoken, lastSaid }, best: prof.best ? { profit: prof.best.profit, mult: prof.best.mult, n: prof.best.pts.length, len: prof.best.len } : null, clip: !!lastClip, replay: { open: !$('rp').classList.contains('hide'), ct: rp.ct, hit: rp.hit, hold: rp.hold }, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { startGolden, endGolden, startFlash, pickFlash, tickFlash, openChest, openPass, openReplay, setTurbo, say, applyEquip, claimLevels, recordWin, addSeasonXP: (n) => { addXP(n, true); }, getProf: () => prof, burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift, bench: (n = 60) => { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, setInd: (patch) => { Object.assign(prof.settings.ind, patch); rebuildBars(); applyIndLayout(); } } };

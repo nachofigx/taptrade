@@ -7,7 +7,10 @@ Tap-trading game: tap a grid cell; if the live price touches that price band dur
 - `indicators.js`  SMA, EMA, RSI and bar resampling (pure, tested)
 - `fonts/`      self-hosted Bungee, Orbitron, Rajdhani (SIL OFL)
 - `progress.js`  XP, levels, achievements, daily mission and streak, themes, pixel avatars, fake-wallet ledger (localStorage)
+- `extras.js`  cosmetics, season pass, daily chest, golden hour, flash challenge, announcer lines, replay clips (pure logic; XP and cosmetics only, never touches balance or odds)
 - `engine.test.js`  `node --test engine.test.js` (includes a ~45 s simulation check that expected return ≈ 92%)
+
+Tests: `node --test *.test.js`
 
 Run: `python3 -m http.server 8137`, then open http://localhost:8137
 
