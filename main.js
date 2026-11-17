@@ -1,12 +1,13 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=11';
-import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck } from './progress.js?v=11';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=13';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck } from './progress.js?v=13';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
 const ASSETS = ['SOL-USD', 'BTC-USD', 'ETH-USD'];
-const STAKES = [1, 5, 10, 25, 100];
+const STAKES = [0.5, 1, 5, 10, 25, 50];
 const START_BAL = 1000;
 const ASPECT = 4 / 3;            // cell width : cell height
+const fmtStake = (s) => (s < 1 ? s.toFixed(2) : String(s));
 const fmt$ = (n) => '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 // ---------- state ----------
@@ -14,6 +15,7 @@ let asset = localStorage.getItem('tl.asset');
 if (!ASSETS.includes(asset)) asset = 'SOL-USD';
 let balance = Number(localStorage.getItem('tl.bal')) || START_BAL;
 let stake = Number(localStorage.getItem('tl.stake')) || 5;
+if (!STAKES.includes(stake)) stake = 5;
 let bets = [], hist = [];
 let last = null, first = null, vol = new Vol(), band = 1, board = new Map(), boardAt = 0, center = 0;
 let TOP = 68;                    // height of the top bar; the playfield starts below it
@@ -164,6 +166,22 @@ function renderStreak(popIt) {
 const SPK = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H2v6h4l5 4z" fill="currentColor"/>';
 function renderMute() { $('mute').className = 'icon' + (muted ? ' muted' : ''); $('mute').innerHTML = SPK + (muted ? '<path d="m22 9-6 6M16 9l6 6"/></svg>' : '<path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>'); }
 
+// ---------- asset mark (coin logo + symbol) shown in the history zone ----------
+const COINS = {
+  BTC: { name: 'Bitcoin', c: '#f7931a', svg: '<svg viewBox="0 0 48 48"><defs><linearGradient id="gb" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ffc15a"/><stop offset="1" stop-color="#f7931a"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="url(#gb)"/><path d="M20.5 9.5v4.5M26.5 9.5v4.5M20.5 34v4.5M26.5 34v4.5" stroke="#fff" stroke-width="3" stroke-linecap="round"/><path d="M16.5 14h11a5.2 5.2 0 0 1 0 10.4h-11zM16.5 24.4h12.5a5.3 5.3 0 0 1 0 10.6H16.5z" fill="#fff"/><path d="M21 18h6a1.4 1.4 0 0 1 0 2.8h-6zM21 28.6h7.2a1.5 1.5 0 0 1 0 3H21z" fill="#f7931a"/></svg>' },
+  SOL: { name: 'Solana', c: '#9945ff', svg: '<svg viewBox="0 0 48 48"><defs><linearGradient id="gs" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#9945ff"/><stop offset="1" stop-color="#14f195"/></linearGradient></defs><circle cx="24" cy="24" r="22" fill="#12081f" stroke="url(#gs)" stroke-width="2.5"/><path d="M15 15.5h20.5l-3.5 4.5H11.5zM15 28h20.5l-3.5 4.5H11.5zM32 21.8H11.5l3.5 4.5H35.5z" fill="url(#gs)" transform="translate(0 -1)"/></svg>' },
+  ETH: { name: 'Ethereum', c: '#627eea', svg: '<svg viewBox="0 0 48 48"><circle cx="24" cy="24" r="22" fill="#1b2350" stroke="#627eea" stroke-width="2.5"/><path d="M24 8l9.5 15.5L24 29z" fill="#a9b8ff"/><path d="M24 8l-9.5 15.5L24 29z" fill="#fff"/><path d="M24 31.5l9.5-6.2L24 40z" fill="#a9b8ff"/><path d="M24 31.5l-9.5-6.2L24 40z" fill="#fff"/></svg>' },
+};
+function renderAssetMark() {
+  const el = $('asset'), sym = asset.split('-')[0], co = COINS[sym]; if (!el || !co) return;
+  el.style.setProperty('--ac', co.c);
+  el.innerHTML = co.svg + '<div><b>' + sym + '</b><small>' + co.name + ' · ' + asset.replace('-', ' / ') + '</small></div>';
+}
+function placeAssetMark() {
+  const el = $('asset'); if (!el) return;
+  const xn = Math.round(W * (W < 820 ? 0.22 : 0.28));
+  el.style.left = xn / 2 + 'px'; el.style.top = TOP + 52 + 'px'; el.style.display = xn < 170 ? 'none' : 'flex';
+}
 // ---------- UI ----------
 function renderTabs() {
   $('tabs').innerHTML = '';
@@ -177,12 +195,13 @@ function renderTabs() {
     };
     $('tabs').append(b);
   }
+  renderAssetMark();
 }
 function renderStakes() {
   $('stakes').innerHTML = '';
   for (const s of STAKES) {
     const b = document.createElement('button');
-    b.textContent = '$' + s; b.className = s === stake ? 'on' : '';
+    b.textContent = '$' + fmtStake(s); b.className = s === stake ? 'on' : '';
     b.onclick = () => { stake = s; localStorage.setItem('tl.stake', s); renderStakes(); };
     $('stakes').append(b);
   }
@@ -519,7 +538,7 @@ function draw() {
     ctx.fillStyle = b.status === 'open' ? 'rgba(255,210,74,0.20)' : b.status === 'won' ? 'rgba(61,255,138,0.30)' : 'rgba(255,77,109,0.22)';
     ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = col; ctx.font = '700 ' + Math.max(12, Math.min(16, cw / 4.3)) + 'px Rajdhani, system-ui, sans-serif';
-    ctx.fillText(b.status === 'open' ? '$' + b.stake + '·' + fmtMult(b.mult) : b.status === 'won' ? '✓' : '✗', x0 + cw / 2, y + RH / 2 + 0.5);
+    ctx.fillText(b.status === 'open' ? '$' + fmtStake(b.stake) + '·' + fmtMult(b.mult) : b.status === 'won' ? '✓' : '✗', x0 + cw / 2, y + RH / 2 + 0.5);
     if (b.status === 'open' && L.t >= b.start && L.t <= b.end) { // countdown bar: how much of the 5 s window is left
       const f = Math.max(0, (b.end - L.t) / SLOT); ctx.fillStyle = f < 0.4 ? '#ff4d6d' : '#3dff8a'; ctx.fillRect(x0 + g + 5, y + RH - g - 7, (cw - 2 * g - 10) * f, 3);
     }
@@ -539,7 +558,7 @@ function draw() {
     const c = board.get(hover.k + ':' + hover.r);
     if (c && !c.off) {
       const x = xOf(L, hover.k * SLOT) + cw / 2, y = yOf((hover.r + 1) * band) - 6;
-      const txt = `$${stake} → ${fmt$(stake * c.m)}`;
+      const txt = `$${fmtStake(stake)} → ${fmt$(stake * c.m)}`;
       ctx.font = '700 12px Rajdhani, system-ui, sans-serif';
       const tw = ctx.measureText(txt).width + 18;
       rr(x - tw / 2, y - 24, tw, 22, 11); ctx.fillStyle = 'rgba(8,12,22,0.92)'; ctx.fill();
@@ -598,12 +617,14 @@ function draw() {
   ctx.textAlign = 'right'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
   for (let r = rowBot; r <= rowTop + 1; r++) {
     const y = yOf(r * band);
-    if (y < TOP + 32 || Math.abs(y - yLast) < 16 || r % 2) continue;
+    if (y < TOP + 32 || Math.abs(y - yLast) < 26 || r % 2) continue;
     ctx.fillStyle = 'rgba(134,147,176,0.7)'; ctx.fillText(fmtPrice(r * band), W - 10, y);
   }
-  const tag = fmtPrice(last.p), tagW = ctx.measureText(tag).width + 18;
-  rr(W - tagW - 4, yLast - 11, tagW, 22, 6); ctx.fillStyle = th.dot; ctx.fill();
-  ctx.fillStyle = '#04120e'; ctx.font = '700 11.5px Rajdhani, system-ui, sans-serif'; ctx.fillText(tag, W - 13, yLast + 0.5);
+  const dec = band < 0.01 ? 3 : band < 1 ? 2 : 0, tag = last.p.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  const small = W < 600; ctx.font = (small ? '900 14px' : '900 17px') + ' Orbitron, system-ui, sans-serif'; const tagW = ctx.measureText(tag).width + (small ? 18 : 26), tagH = small ? 26 : 32;
+  ctx.shadowColor = th.dot; ctx.shadowBlur = 18; rr(W - tagW - 6, yLast - tagH / 2, tagW, tagH, 8); ctx.fillStyle = th.dot; ctx.fill(); ctx.shadowBlur = 0;
+  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.fillStyle = '#04120e'; ctx.textAlign = 'right'; ctx.fillText(tag, W - (small ? 15 : 19), yLast + 1);
   if (tension > 0.12) { // pulsing vignette that tightens as the price closes in
     const a = Math.min(0.5, tension * 0.42) * (0.65 + 0.35 * Math.sin(L.t * (6 + 14 * tension))), vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(${tension > 0.6 ? '255,60,90' : th.glow},${a})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
@@ -644,7 +665,7 @@ cv.addEventListener('pointerdown', (e) => {
   const cell = board.get(c.k + ':' + c.r), t = now();
   if (!cell || cell.off || c.k * SLOT < t + LOCK) return;
   audio();
-  if (balance < stake) { sfx.error(); return toast('Saldo insuficiente para $' + stake, 'l'); }
+  if (balance < stake) { sfx.error(); return toast('Saldo insuficiente para $' + fmtStake(stake), 'l'); }
   if (bets.some((b) => b.status === 'open' && b.k === c.k && b.r === c.r)) return;
   balance -= stake; renderBal('down');
   bets.push({ id: nextId++, k: c.k, r: c.r, start: c.k * SLOT, end: (c.k + 1) * SLOT, lo: c.r * band, hi: (c.r + 1) * band, stake, mult: cell.m, status: 'open', placedAt: t, lastTick: 99, int: 0 });
@@ -658,6 +679,7 @@ function resize() {
   TOP = document.querySelector('.bar').offsetHeight;
   RH = Math.max(40, Math.ceil(W / 32));   // keeps the 120 s pricing horizon on screen at any width
   cv.width = W * dpr; cv.height = H * dpr;
+  placeAssetMark();
 }
 addEventListener('resize', resize); addEventListener('load', resize); resize();
 ['700 16px Rajdhani', '600 12px Rajdhani', '400 20px Bungee', '900 16px Orbitron'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
