@@ -14,7 +14,7 @@ let bets = [];                 // open + recently settled (for drawing)
 let hist = [];                 // {t,p}
 let last = null, vol = new Vol(), band = 1, board = new Map(), boardAt = 0, center = 0;
 let hover = null, ws = null, wsTimer = null, W = 0, H = 0, dpr = 1, nextId = 1;
-const RH = 34;                 // row height px
+let RH = 34;                   // row height px; column width is always 2 * RH (2:1 cells)
 const now = () => Date.now() / 1000;
 
 // ---------- UI ----------
@@ -91,7 +91,7 @@ setInterval(() => { // settle losses even when no ticks arrive
 function layout() {
   const t = now();
   const xNow = Math.round(W * 0.3);
-  const pps = Math.max(14, Math.min(40, (W * 0.7) / 55));
+  const pps = (2 * RH) / SLOT; // a SLOT-second column is exactly 2x as wide as a row is tall
   return { t, xNow, pps };
 }
 const xOf = (L, t) => L.xNow + (t - L.t) * L.pps;
@@ -160,7 +160,7 @@ function draw() {
     ctx.fillRect(x0 + 1, y + 1, x1 - x0 - 2, h - 2);
     ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.strokeRect(x0 + 2, y + 2, x1 - x0 - 4, h - 4);
     ctx.fillStyle = col;
-    const label = b.status === 'won' ? '+' + fmt$(b.stake * (b.mult - 1)) : b.status === 'lost' ? '−' + fmt$(b.stake) : '$' + b.stake + ' · ' + b.mult.toFixed(2) + 'x';
+    const label = b.status === 'won' ? '+' + fmt$(b.stake * (b.mult - 1)) : b.status === 'lost' ? '−' + fmt$(b.stake) : '$' + b.stake + '·' + (b.mult >= 10 ? b.mult.toFixed(1) : b.mult.toFixed(2)) + 'x';
     ctx.fillText(label, (x0 + x1) / 2, y + h / 2);
     ctx.globalAlpha = 1; ctx.lineWidth = 1;
   }
@@ -199,8 +199,9 @@ cv.addEventListener('pointerdown', (e) => {
 });
 function resize() {
   dpr = window.devicePixelRatio || 1; W = innerWidth; H = innerHeight;
+  RH = Math.max(34, Math.ceil(W / 40)); // keeps the pricing horizon (75s) on screen at any width
   cv.width = W * dpr; cv.height = H * dpr;
 }
 addEventListener('resize', resize); resize();
 connect(); frame();
-window.__tapline = { get state() { return { balance, bets, last, band, boardSize: board.size, sigma: vol.sigma }; } };
+window.__tapline = { get state() { return { balance, bets, last, band, RH, pps: layout().pps, boardSize: board.size, sigma: vol.sigma }; } };
