@@ -4,8 +4,8 @@ Tap-trading game: tap a grid cell; if the live price touches that price band dur
 
 - `engine.js`  pricing (Monte Carlo touch probabilities, 8% house edge) and bet resolution
 - `main.js`    canvas UI, price feed, bets
-- `engine.test.js`  `node --test tapline/engine.test.js` (includes a ~45 s simulation check that expected return ≈ 92%)
+- `engine.test.js`  `node --test engine.test.js` (includes a ~45 s simulation check that expected return ≈ 92%)
 
-Run: `cd tapline && python3 -m http.server 8137`, then open http://localhost:8137
+Run: `python3 -m http.server 8137`, then open http://localhost:8137
 
 Next (phase 2): server-side resolution, Pyth oracle, Solana program + vault, session keys. Needs legal review and an audit before real money.
