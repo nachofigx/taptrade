@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { computeBoard, stepBet, EDGE, SLOT, LOCK, Vol } from './engine.js';
+import { computeBoard, stepBet, EDGE, SLOT, LOCK, Vol, MAX_MULT, MIN_P, DIFFICULTY, LONGSHOT_EDGE, longshotEdge } from './engine.js';
+import { calibrate } from './calibration.js';
 
 test('stepBet: wins on touch inside window, loses after window', () => {
   const bet = { status: 'open', start: 100, end: 105, lo: 10, hi: 11 };
@@ -64,4 +65,34 @@ test('Vol estimator reacts to movement', () => {
   let p = 100;
   for (let t = 0; t < 200; t++) { p *= 1 + (t % 2 ? 0.001 : -0.001); v.add(t, p); }
   assert.ok(v.sigma > 0.0005);
+});
+
+const board = (extra = {}) => { const S = 100, band = 0.05, now = 1000.3, k = Math.ceil((now + LOCK) / SLOT) + 1, r0 = Math.floor(S / band);
+  return computeBoard({ S, sigma: 0.0004, now, slotFrom: k, slotTo: k + 6, rowFrom: r0 - 30, rowTo: r0 + 30, band, ...extra }); };
+
+test('edge parameter: a lower house edge pays more on every cell, and every cell returns (1 - edge)', () => {
+  const hi = board({ edge: DIFFICULTY.real.edge }), lo = board({ edge: DIFFICULTY.relaxed.edge });
+  assert.ok(DIFFICULTY.relaxed.edge < DIFFICULTY.normal.edge && DIFFICULTY.normal.edge < DIFFICULTY.real.edge);
+  let compared = 0;
+  for (const [key, c] of lo) { const d = hi.get(key); if (!d || c.off || d.off) continue; assert.ok(c.m >= d.m, key); compared++; }
+  assert.ok(compared > 20);
+  for (const edge of [0, 0.02, 0.04, 0.08]) for (const [key, c] of board({ edge })) {
+    if (c.off) continue; const want = 1 - edge - longshotEdge(c.p); assert.ok(Math.abs(c.m * c.p - want) < 0.011, `${key} edge ${edge}: return ${(c.m * c.p).toFixed(3)} vs ${want.toFixed(3)}`); assert.ok(c.m < MAX_MULT + 1e-9);
+  }
+});
+test('the multiplier cap never lowers the return (the old 50x cap quietly cost the player up to 40% on far cells)', () => {
+  assert.ok((1 - 0) / MIN_P < MAX_MULT, 'cap would bind even at zero edge');
+  const far = [...board({ edge: 0.04 })].filter(([, c]) => !c.off && c.p < 0.03);
+  assert.ok(far.length > 5, 'far cells exist in the test board'); for (const [, c] of far) assert.ok(c.m * c.p > 0.96 - LONGSHOT_EDGE - 0.011 && c.m * c.p < 0.96 + 0.011);
+});
+test('calibration is applied to the probability and to the price', () => {
+  const K = [[0.02, 0.03], [0.2, 0.15], [0.6, 0.45]], raw = board({ edge: 0.04 }), cal = board({ edge: 0.04, cal: K });
+  let seen = 0; for (const [key, c] of cal) { const r = raw.get(key); if (!r || r.off || c.off) continue; if (Math.abs(c.p - calibrate(r.p, K)) < 1e-9) seen++; assert.ok(Math.abs(c.m * c.p - (0.96 - longshotEdge(c.p))) < 0.011); }
+  assert.ok(seen > 15, 'calibrated p matches calibrate(rawP) for most cells');
+});
+
+test('longshot margin: zero above 5%, full at or below 1.5%, monotone in between, and the cap still never binds', () => {
+  assert.equal(longshotEdge(0.2), 0); assert.equal(longshotEdge(0.05), 0); assert.ok(Math.abs(longshotEdge(0.015) - LONGSHOT_EDGE) < 1e-12); assert.ok(Math.abs(longshotEdge(0.0101) - LONGSHOT_EDGE) < 1e-12);
+  let prev = LONGSHOT_EDGE + 1; for (let p = 0.0101; p < 0.06; p += 0.001) { const x = longshotEdge(p); assert.ok(x <= prev + 1e-12); prev = x; }
+  for (const edge of [0, 0.02, 0.08]) assert.ok((1 - edge) / MIN_P < MAX_MULT);
 });

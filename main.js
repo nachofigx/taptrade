@@ -1,4 +1,6 @@
-import { SLOT as SLOT0, LOCK as LOCK0, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=19';
+import { SLOT as SLOT0, LOCK as LOCK0, STEPS, DT, Vol, computeBoard, stepBet, DIFFICULTY, EDGE } from './engine.js?v=22';
+import { oddsFor, fetchOdds } from './odds.js?v=22';
+import { marketContext } from './context.js?v=22';
 import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=19';
 import { FRAMES, TRAILS, TUNES, KINDS, KIND_LABEL, itemKey, owns, equip, itemName, SEASON_REWARDS, SEASON_LEVELS, seasonInfo, seasonSync, addSeasonXP, seasonClaimable, seasonClaim, rollChest, GOLD, goldGap, goldTier, FLASH, flashGap, flashXP, flashResult, pickLine, buildClip, clipPriceAt, grant } from './extras.js?v=17';
 import { DEFAULT_IND, sma, ema, rsi, pushTick, holdResample, gaussSmooth } from './indicators.js?v=19';
@@ -26,6 +28,8 @@ let wins = 0, losses = 0, pnl = 0, lastTickAt = 0;
 let streak = 0, bestStreak = 0, lastFrameAt = performance.now();
 const parts = []; let banner = null, shakeMag = 0;
 let prof = loadProfile();
+let oddsDoc = null, closes1 = [];     // odds published by the tuner (odds.json) and 1-second closes used for the pricing context
+const houseEdge = () => (DIFFICULTY[prof.settings.difficulty] || DIFFICULTY.normal).edge;
 (() => { const d = DEFAULT_IND, i = prof.settings.ind || {}; prof.settings.ind = { ...d, ...i, ma1: { ...d.ma1, ...i.ma1 }, ma2: { ...d.ma2, ...i.ma2 }, rsi: { ...d.rsi, ...i.rsi } }; })();
 let dispP = 0, lastDrawAt = 0;   // price shown by the "now" dot/line: eases toward the real last price
 let bars = [];             // price bars for the indicators: one close per prof.settings.ind.bar seconds
@@ -424,6 +428,9 @@ function renderProfile() {
     <div class="avgrid">${AVATAR_SEEDS.map((sd) => `<button class="avb ${prof.avatar.type === 'pixel' && prof.avatar.seed === sd ? 'on' : ''}" data-seed="${sd}" title="${sd}">${pixelAvatarSVG(sd, 54)}</button>`).join('')}
       <button class="btn" id="avrand">Aleatorio</button><button class="btn" id="avup">Subir foto</button><input type="file" id="avfile" accept="image/*" hidden></div>
     <div class="sub" style="margin-top:6px">Tu foto se reduce a 96×96 y se queda solo en este navegador.</div>
+    <h3>Dificultad</h3>
+    <div class="themes">${Object.entries(DIFFICULTY).map(([id, d]) => `<button data-diff="${id}" class="${(DIFFICULTY[prof.settings.difficulty] ? prof.settings.difficulty : 'normal') === id ? 'on' : ''}" style="color:#e8ebf1">${d.name} · casa ${Math.round(d.edge * 100)} %</button>`).join('')}</div>
+    <div class="sub" style="margin-top:8px">Retorno esperado: <b style="color:var(--text)">${Math.round((1 - houseEdge()) * 100)} %</b> de lo apostado (la casa se queda ${Math.round(houseEdge() * 100)} %). Es un promedio de muchas apuestas: en una sesión corta puedes ganar o perder bastante más. Las probabilidades se ajustan con precios reales de Coinbase${oddsDoc ? ' (cuotas del tuner con datos hasta ' + (oddsDoc.data_until || oddsDoc.updated || '').slice(0, 16).replace('T', ' ') + ' UTC)' : ' (calibración integrada)'}.</div>
     <h3>Sonido</h3>
     <div class="setrow"><label><input type="checkbox" id="setMusic" ${musicOn ? 'checked' : ''}> Música de fondo</label><input type="range" id="volMusic" min="0" max="100" value="${Math.round(prof.settings.musicVol * 100)}"></div>
     <div class="setrow"><label><input type="checkbox" id="setSfx" ${muted ? '' : 'checked'}> Efectos de sonido</label><input type="range" id="volSfx" min="0" max="100" value="${Math.round(prof.settings.sfxVol * 100)}"></div>
@@ -503,6 +510,7 @@ function bindProfileExtras() {
   $('setSfx').onchange = (e) => { muted = !e.target.checked; localStorage.setItem('tl.mute', muted ? '1' : '0'); renderMute(); if (!muted) sfx.tap(3); };
   $('volSfx').oninput = (e) => { prof.settings.sfxVol = e.target.value / 100; persist(); if (master) master.gain.setTargetAtTime(0.55 * prof.settings.sfxVol, actx.currentTime, 0.03); };
   $('volSfx').onchange = () => sfx.tap(4);
+  $('profbody').querySelectorAll('[data-diff]').forEach((b) => { b.onclick = () => { prof.settings.difficulty = b.dataset.diff; persist(); boardAt = 0; renderProfile(); toast('Dificultad: ' + DIFFICULTY[b.dataset.diff].name + ' (casa ' + Math.round(DIFFICULTY[b.dataset.diff].edge * 100) + ' %)'); }; });
 }
 $('lvl').onclick = openProfile; $('share').onclick = shareCard; $('music').onclick = () => { setMusic(!musicOn); };
 $('prof').addEventListener('pointerdown', (e) => { if (e.target === $('prof')) closeProfile(); });
@@ -528,7 +536,7 @@ function connect() {
   clearTimeout(wsTimer);
   if (ws) { ws.onclose = null; ws.close(); }
   gifts.length = 0; nextGift = now() + 10;
-  dispP = 0; bars = []; histGain = 1;   hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
+  dispP = 0; bars = []; closes1 = []; histGain = 1;   hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
   $('price').textContent = '—'; $('price').className = ''; $('chg').textContent = '';
   $('msg').style.display = 'block'; $('msg').textContent = 'Conectando al precio en vivo…'; setLive(false, 'CONECTANDO');
   ws = new WebSocket('wss://ws-feed.exchange.coinbase.com');
@@ -553,7 +561,7 @@ function onTick(t, p) {
   const cur = { t, p };
   if (!last) { band = pickBand(p, vol.sigma); center = p; first = p; $('msg').style.display = 'none'; setLive(true, 'EN VIVO'); }
   const prev = last || cur;
-  hist.push(cur); pushTick(bars, t, p, prof.settings.ind.bar);
+  hist.push(cur); pushTick(bars, t, p, prof.settings.ind.bar); pushTick(closes1, t, p, 1, 400);
   while (hist.length > 4000 || (hist.length && t - hist[0].t > 600)) hist.shift();
   vol.add(t, p); last = cur; lastTickAt = t;
   const el = $('price'), d = p > prev.p ? 'up' : p < prev.p ? 'down' : null;
@@ -640,11 +648,13 @@ const priceAtY = (y) => center + ((midY() - y) / RH) * band;
 function recompute(L) {
   if (!last) return;
   const half = Math.ceil(H / 2 / RH) + 3, cr = Math.floor(center / band);
+  pushTick(closes1, L.t, last.p, 1, 400); const mctx = marketContext(closes1.map((b) => b.c), vol.sigma), od = oddsFor(oddsDoc, asset);
   board = computeBoard({
     S: last.p, sigma: vol.sigma, now: L.t,
     slotFrom: Math.ceil((L.t + LOCK) / SLOT),
     slotTo: Math.floor((L.t + STEPS * DT) / SLOT) - 1, slot: SLOT,
     rowFrom: cr - half, rowTo: cr + half, band,
+    edge: houseEdge(), cal: od.knots, adj: od.adj, ctx: mctx.ready ? mctx : null,
   });
   boardAt = L.t;
 }
@@ -1001,5 +1011,7 @@ function resize() {
 }
 addEventListener('resize', resize); addEventListener('load', resize); resize();
 ['700 16px Rajdhani', '600 12px Rajdhani', '400 20px Bungee', '900 16px Orbitron'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
+const refreshOdds = () => fetchOdds('odds.json').then((d) => { if (d) { oddsDoc = d; boardAt = 0; } });
+refreshOdds(); setInterval(refreshOdds, 10 * 60 * 1000);
 connect(); requestAnimationFrame(frame);
-window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, bars: bars.length, nowX: nowX(), ind: prof.settings.ind, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift, bench: (n = 60) => { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, setInd: (patch) => { Object.assign(prof.settings.ind, patch); rebuildBars(); applyIndLayout(); } } };
+window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, odds: oddsFor(oddsDoc, asset).source, oddsAt: oddsDoc && oddsDoc.updated, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, bars: bars.length, nowX: nowX(), ind: prof.settings.ind, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift, bench: (n = 60) => { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, setInd: (patch) => { Object.assign(prof.settings.ind, patch); rebuildBars(); applyIndLayout(); } } };

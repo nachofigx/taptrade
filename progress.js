@@ -61,7 +61,7 @@ export function newProfile() {
     season: { id: null, xp: 0, claimed: [] },
     chest: { day: null },
     best: null,   // clip of the biggest win (see extras.js buildClip)
-    settings: { music: true, musicVol: 0.6, sfxVol: 1, voice: true, turbo: false },
+    settings: { music: true, musicVol: 0.6, sfxVol: 1, voice: true, turbo: false, difficulty: 'normal' },
   };
 }
 

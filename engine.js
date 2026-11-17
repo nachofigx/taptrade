@@ -1,12 +1,21 @@
 // Tapline engine: pricing (Monte Carlo touch probabilities) + bet resolution.
 // Pure functions, no DOM, so it can be tested in Node.
+import { calibrate } from './calibration.js';
+import { adjustP } from './context.js';
 
 export const SLOT = 5;        // seconds per grid column
 export const LOCK = 3;        // betting closes this many seconds before a column starts
-export const EDGE = 0.08;     // house edge (expected return for the player is 1 - EDGE)
-export const MIN_P = 0.012;   // cells less likely than this are not offered
-export const MAX_MULT = 50;
+export const EDGE = 0.04;     // default house edge: the player's expected return is 1 - EDGE. computeBoard takes `edge` (see DIFFICULTY)
+export const MIN_P = 0.0101;  // cells less likely than this (after calibration) are not offered
+export const MAX_MULT = 100;  // (1 - edge) / MIN_P < MAX_MULT for every edge >= 0, so the cap never lowers the return
 export const MIN_MULT = 1.02; // below this the cell is shown but disabled (almost certain to hit)
+// Difficulty = house edge: the share of every stake the house keeps on average, once probabilities are calibrated to real prices.
+export const DIFFICULTY = { relaxed: { edge: 0.02, name: 'Relajado' }, normal: { edge: 0.04, name: 'Normal' }, real: { edge: 0.08, name: 'Realista' } };
+// Long shots carry an extra margin: rare jumps are the hardest thing to price, and backtests showed that betting only on cells under ~5%
+// could beat the house by a few points even after calibration. Extra edge = LONGSHOT_EDGE at p <= 1.5%, fading to 0 at p >= 5%.
+export const LONGSHOT_EDGE = 0.04;
+export const longshotEdge = (p) => (p >= 0.05 ? 0 : LONGSHOT_EDGE * Math.min(1, (0.05 - p) / 0.035));
+export function priceMult(p, edge) { return Math.min(MAX_MULT, Math.floor(((1 - edge - longshotEdge(p)) / p) * 100) / 100); }
 export const PATHS = 2500;
 export const STEPS = 240;     // horizon = STEPS * DT = 120 seconds
 export const DT = 0.5;
@@ -59,12 +68,15 @@ export class Vol {
 
 // Row r covers prices [r*band, (r+1)*band). Slot k covers epoch seconds [k*SLOT, (k+1)*SLOT).
 // Returns Map "k:r" -> { m: multiplier, p: win probability } for offered cells.
-export function computeBoard({ S, sigma, now, slotFrom, slotTo, rowFrom, rowTo, band, dt = DT, slot = SLOT }) {
+// `adj` + `ctx` = optional context factors (see context.js): the tuner learns them so that following momentum or the volatility
+// does not beat the house. `minP` is for calibration runs only (the game always uses MIN_P).
+// `cal` = optional calibration knots [[modelP, realisedP], ...] (see calibration.js) that correct the model's probabilities with real data.
+export function computeBoard({ S, sigma, now, slotFrom, slotTo, rowFrom, rowTo, band, dt = DT, slot = SLOT, edge = EDGE, cal = null, adj = null, ctx = null, minP = MIN_P }) {
   const w = walks();
   const out = new Map();
   const counts = new Int32Array(rowTo - rowFrom + 1);
   // Broadie-Glasserman continuity correction for discrete monitoring.
-  const bgc = 0.5826 * Math.sqrt(dt);
+  const bgc = 0.5826 * Math.sqrt(dt), cr = Math.floor(S / band);
   for (let k = slotFrom; k <= slotTo; k++) {
     const start = k * slot, end = start + slot;
     let a = Math.ceil((start - now) / dt), b = Math.floor((end - now) / dt);
@@ -83,9 +95,10 @@ export function computeBoard({ S, sigma, now, slotFrom, slotTo, rowFrom, rowTo, 
       for (let r = r0; r <= r1; r++) counts[r - rowFrom]++;
     }
     for (let r = rowFrom; r <= rowTo; r++) {
-      const P = counts[r - rowFrom] / PATHS;
-      if (P < MIN_P) continue;
-      const m = Math.min(MAX_MULT, Math.floor(((1 - EDGE) / P) * 100) / 100);
+      let P = cal ? calibrate(counts[r - rowFrom] / PATHS, cal) : counts[r - rowFrom] / PATHS;
+      if (adj && ctx) P = adjustP(P, { adj, mz: ctx.mz, vr: ctx.vr, dir: Math.sign(r - cr) });   // price what the player can see: direction and recent volatility
+      if (P < minP) continue;
+      const m = priceMult(P, edge);
       // Too likely to pay a meaningful multiplier: keep the cell on the board but not tappable.
       out.set(k + ':' + r, m < MIN_MULT ? { m: 0, p: P, off: true } : { m, p: P });
     }
