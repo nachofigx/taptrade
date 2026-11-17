@@ -24,6 +24,9 @@ export const ACHIEVEMENTS = [
   { id: 'combo_2',    name: 'Doble golpe',        desc: 'Gana 2 apuestas de la misma columna',    xp: 80 },
   { id: 'near_5',     name: 'Por un pelo',        desc: 'Vive 5 «¡por poco!»',                    xp: 50 },
   { id: 'rich',       name: 'Mil quinientos',     desc: 'Llega a $1,500 de saldo',                xp: 150 },
+  { id: 'gift_1',     name: 'Cazador de regalos', desc: 'Atrapa tu primer regalo',                xp: 50 },
+  { id: 'gift_10',    name: 'Coleccionista',      desc: 'Atrapa 10 regalos',                      xp: 150 },
+  { id: 'gift_gold',  name: 'Tesoro dorado',      desc: 'Atrapa un regalo dorado',                xp: 200 },
 ];
 
 export const MISSIONS = [
@@ -48,7 +51,7 @@ export function missionFor(day) { return MISSIONS[((dayNum(day) % MISSIONS.lengt
 
 export function newProfile() {
   return {
-    xp: 0, ach: {}, stats: { bets: 0, wins: 0, losses: 0, near: 0, bestStreak: 0, biggest: 0 }, theme: 'aqua', day: null, dayStreak: 0, mission: null,
+    xp: 0, ach: {}, stats: { bets: 0, wins: 0, losses: 0, near: 0, bestStreak: 0, biggest: 0, gifts: 0 }, theme: 'aqua', day: null, dayStreak: 0, mission: null,
     name: 'JUGADOR', avatar: { type: 'pixel', seed: 'ace' },
     wallet: { addr: null, ledger: [] },
     settings: { music: true, musicVol: 0.6, sfxVol: 1 },

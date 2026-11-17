@@ -170,7 +170,7 @@
   .tile.got { border-color:rgba(255,210,74,.6); background:linear-gradient(135deg,rgba(255,210,74,.16),rgba(255,210,74,.03)); box-shadow:0 0 16px rgba(255,210,74,.14); }
   .tile.got b { color:var(--gold); } .tile.got .medal { background:radial-gradient(circle at 35% 30%,#fff3b0,#ffc83a 60%,#c88a00); color:#3b2a00; border-color:#ffd24a; box-shadow:0 0 14px rgba(255,210,74,.7); }
   .tile.ach:not(.got) { opacity:.55; }
-  .stat4 { display:grid; grid-template-columns:repeat(4,1fr); gap:9px; } .stat4 .tile { text-align:center; padding:13px 8px; }
+  .stat4 { display:grid; grid-template-columns:repeat(auto-fit,minmax(110px,1fr)); gap:9px; } .stat4 .tile { text-align:center; padding:13px 8px; }
   .stat4 b.num { font:900 21px var(--fn); text-shadow:0 0 14px rgba(44,245,210,.45); color:#fff; } .stat4 span { font:700 11px var(--fu); letter-spacing:.14em; text-transform:uppercase; color:var(--dim); }
   .themes { display:flex; gap:9px; flex-wrap:wrap; } .themes button { padding:9px 16px; border-radius:11px; border:1px solid var(--line); background:rgba(255,255,255,.04); font:700 15px var(--fu); letter-spacing:.05em; cursor:pointer; transition:.15s; }
   .themes button.on { border-color:currentColor; box-shadow:0 0 18px currentColor, inset 0 0 0 1px currentColor; } .themes button:disabled { opacity:.4; cursor:not-allowed; }
@@ -227,6 +227,6 @@
 <div id="toast" class="card"></div>
 <div id="help" class="card"><div><b>Cómo jugar.</b> Toca una casilla: si el precio la toca dentro de su columna de tiempo, cobras <b>apuesta × multiplicador</b>. Más lejos del precio paga más. Saldo ficticio, precio real.</div><button id="helpok">Entendido</button></div>
 <div id="foot">Precios en vivo de Coinbase · modo práctica</div>
-<script type="module" src="main.js?v=14"></script>
+<script type="module" src="main.js?v=15"></script>
 </body>
 </html>

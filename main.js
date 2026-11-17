@@ -1,5 +1,5 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=14';
-import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=14';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=15';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=15';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -26,6 +26,7 @@ const parts = []; let banner = null, shakeMag = 0;
 let prof = loadProfile();
 let tension = 0, slow = 0, heartNext = 0, lossRun = 0, lastBig = null, lp = null, shareT = 0;
 const comboMap = new Map();
+const gifts = []; let nextGift = 0;   // special gift boxes: touch them with the price to earn XP
 const theme = () => THEMES.find((t) => t.id === prof.theme && levelInfo(prof.xp).level >= t.lvl) || THEMES[0];
 const HIST_T = 10, HIST_MAX = 300;   // history compression: log scale, 5 minutes visible
 let histGain = 1;                 // vertical exaggeration at the far (oldest) end
@@ -93,6 +94,12 @@ const sfx = {
   combo(n) { if (!audio()) return; const t = actx.currentTime, root = semi(660, Math.min(n, 6) * 2); [0, 4, 7, 12, 16, 19].forEach((x, i) => tone(semi(root, x), t + i * 0.045, 0.22, { type: 'triangle', gain: 0.11 })); noise(t, 0.2, 0.08, 3000, 9000); },
   level() { if (!audio()) return; const t = actx.currentTime; [0, 4, 7, 12, 16, 19, 24].forEach((x, i) => { tone(semi(392, x), t + i * 0.08, 0.5, { type: 'triangle', gain: 0.12 }); tone(semi(392, x) / 2, t + i * 0.08, 0.5, { gain: 0.05 }); }); noise(t + 0.3, 0.9, 0.08, 500, 9000); },
   ach() { if (!audio()) return; const t = actx.currentTime; [0, 7, 12].forEach((x, i) => tone(semi(988, x), t + i * 0.09, 0.35, { type: 'sine', gain: 0.12 })); tone(semi(988, 24), t + 0.3, 0.5, { gain: 0.06 }); },
+  giftSpawn() { if (!audio()) return; const t = actx.currentTime; [0, 7, 12, 19].forEach((x, i) => tone(semi(1318, x), t + i * 0.05, 0.25, { gain: 0.06 })); },
+  gift(tier) {
+    if (!audio()) return; const t = actx.currentTime, root = tier === 'gold' ? 784 : tier === 'silver' ? 659 : 523, notes = tier === 'gold' ? [0, 4, 7, 12, 16, 19, 24] : tier === 'silver' ? [0, 4, 7, 12, 16] : [0, 4, 7, 12];
+    notes.forEach((x, i) => { tone(semi(root, x), t + i * 0.06, 0.42, { type: 'triangle', gain: 0.14 }); tone(semi(root, x) * 2, t + i * 0.06, 0.26, { gain: 0.05 }); });
+    noise(t, 0.4, 0.09, 5000, 11000); if (tier === 'gold') { tone(70, t, 0.55, { gain: 0.3, slide: 0.5 }); noise(t + 0.1, 0.7, 0.1, 400, 9000); }
+  },
   error() { if (!audio()) return; const t = actx.currentTime; tone(150, t, 0.16, { type: 'square', gain: 0.06, slide: 0.7 }); },
 };
 const setSlowFilter = (on) => { if (lp && actx) lp.frequency.setTargetAtTime(on ? 700 : 20000, actx.currentTime, 0.07); };
@@ -151,6 +158,64 @@ function renderMusic() { $('music').className = 'icon' + (musicOn ? '' : ' off')
 ['pointerdown', 'keydown'].forEach((ev) => addEventListener(ev, () => { if (musicOn) startMusic(); }, { passive: true }));
 document.addEventListener('visibilitychange', () => { if (!document.hidden && musicOn && musicTimer) mNext = 0; });
 
+// ---------- gifts: special boxes that appear now and then; touch one with the price to earn XP (no stake needed) ----------
+const GIFT_TIERS = {
+  bronze: { xp: 25,  pMin: 0.30,  pMax: 0.65, hue: 28,  c1: '#ffb15c', c2: '#a8500c', glow: 'rgba(255,154,61,0.95)',  ribbon: '#ffe6bf', name: 'REGALO' },
+  silver: { xp: 75,  pMin: 0.10,  pMax: 0.30, hue: 205, c1: '#dcebff', c2: '#6384c4', glow: 'rgba(170,205,255,0.95)', ribbon: '#ffffff', name: 'REGALO PLATA' },
+  gold:   { xp: 200, pMin: 0.025, pMax: 0.10, hue: 48,  c1: '#ffe680', c2: '#d29200', glow: 'rgba(255,210,74,1)',     ribbon: '#fff7cf', name: 'REGALO DORADO' },
+};
+function spawnGift(force, range) {
+  const t = now(), k0 = Math.ceil((t + 8) / SLOT), k1 = k0 + 6, roll = Math.random();
+  const tier = force || (roll < 0.6 ? 'bronze' : roll < 0.9 ? 'silver' : 'gold'), T = GIFT_TIERS[tier], [pMin, pMax] = range || [T.pMin, T.pMax];
+  const taken = new Set(gifts.filter((g) => g.status === 'open').map((g) => g.k + ':' + g.r)), cands = [];
+  for (const [key, c] of board) {
+    if (c.off || taken.has(key)) continue; const [k, r] = key.split(':').map(Number);
+    if (k >= k0 && k <= k1 && c.p >= pMin && c.p <= pMax) cands.push([k, r]);
+  }
+  if (!cands.length) return false;
+  const [k, r] = cands[Math.floor(Math.random() * cands.length)];
+  const g = { id: nextId++, p0: board.get(k + ':' + r).p, k, r, start: k * SLOT, end: (k + 1) * SLOT, lo: r * band, hi: (r + 1) * band, tier, xp: T.xp, status: 'open', spawnedAt: t, near: 0 };
+  gifts.push(g);
+  const L = layout(), cx = xOf(L, g.start) + L.cw / 2, cy = yOf(g.hi) + RH / 2;
+  ring(cx, cy, T.hue, 1.2); burst(cx, cy, { n: 18, hue: T.hue, speed: 160, life: 0.7, grav: -40, size: 2.6, light: 78 }); sfx.giftSpawn();
+  return true;
+}
+function claimGift(g) {
+  g.status = 'won'; g.doneAt = now();
+  const L = layout(), cx = xOf(L, g.start) + L.cw / 2, cy = yOf(g.hi) + RH / 2, T = GIFT_TIERS[g.tier];
+  burst(cx, cy, { n: 50, hue: T.hue, speed: 380, life: 1, size: 3.8 }); burst(cx, cy, { n: 20, hue: 50, speed: 240, light: 80 }); ring(cx, cy, T.hue, 1.6);
+  if (g.tier !== 'bronze') confetti(cx, cy, g.tier === 'gold' ? 100 : 45);
+  shake(g.tier === 'gold' ? 11 : g.tier === 'silver' ? 6 : 4); sfx.gift(g.tier); buzz([20, 30, 60]);
+  prof.stats.gifts = (prof.stats.gifts || 0) + 1;
+  showBanner(g.tier === 'gold' ? '¡REGALO DORADO!' : '¡REGALO!', '+' + g.xp + ' XP', T.hue, g.tier === 'gold');
+  addXP(g.xp); unlock('gift_1'); if (prof.stats.gifts >= 10) unlock('gift_10'); if (g.tier === 'gold') unlock('gift_gold'); persist();
+}
+function drawGift(g, L, th, hasBet) {
+  const cw = L.cw, x0 = xOf(L, g.start), y = yOf(g.hi), age = g.doneAt ? L.t - g.doneAt : 0, T = GIFT_TIERS[g.tier];
+  if (x0 > W || x0 + cw < 0) return;
+  const cx = x0 + cw / 2, cy = y + RH / 2, pulse = 0.5 + 0.5 * Math.sin(L.t * 5 + g.id), grow = Math.min(1, (L.t - g.spawnedAt) / 0.45);
+  const alpha = g.status === 'open' ? 1 : Math.max(0, 1 - age / 1.1), gl = 12 + 14 * pulse + 26 * (g.near || 0);
+  if (g.status === 'open' && Math.random() < 0.18) parts.push({ k: 'dot', x: x0 + Math.random() * cw, y: y + Math.random() * RH, vx: 0, vy: -26, t: 0, max: 0.7, size: 1.9, h: T.hue, light: 85, grav: -20 });
+  ctx.save(); ctx.globalAlpha = alpha;
+  if (hasBet) { // compact corner badge when you also have a bet on this cell
+    ctx.translate(x0 + cw - 11, y + 11); ctx.scale(0.9 + 0.1 * pulse, 0.9 + 0.1 * pulse);
+    ctx.shadowColor = T.glow; ctx.shadowBlur = 10; ctx.fillStyle = T.c1; ctx.beginPath(); ctx.arc(0, 0, 8, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = T.ribbon; ctx.fillRect(-1.5, -6, 3, 12); ctx.fillRect(-6, -1.5, 12, 3); ctx.restore(); return;
+  }
+  const sc = (0.55 + 0.45 * Math.min(1.25, grow * 1.25)) * (1 + 0.025 * pulse + 0.05 * (g.near || 0)) * (g.status === 'won' ? 1 + age * 0.9 : 1);
+  ctx.translate(cx, cy); ctx.scale(sc, sc); ctx.translate(-cx, -cy);
+  const g0 = 1.5, rad = Math.min(8, RH / 5);
+  ctx.shadowColor = T.glow; ctx.shadowBlur = gl; rr(x0 + g0, y + g0, cw - 2 * g0, RH - 2 * g0, rad);
+  const fg = ctx.createLinearGradient(0, y, 0, y + RH); fg.addColorStop(0, T.c1 + 'cc'); fg.addColorStop(1, T.c2 + 'cc'); ctx.fillStyle = fg; ctx.fill(); ctx.shadowBlur = 0;
+  ctx.strokeStyle = g.tier === 'gold' ? `hsl(${(L.t * 140) % 360},95%,68%)` : T.c1; ctx.lineWidth = 2; ctx.stroke();
+  // gift box: lid, body, ribbon, bow
+  const bw = Math.min(24, cw * 0.4), bx = cx - bw / 2, by = cy - 13;
+  ctx.fillStyle = T.c2; ctx.fillRect(bx + 1, by + 8, bw - 2, 12); ctx.fillStyle = T.c1; ctx.fillRect(bx - 1, by + 3, bw + 2, 6);
+  ctx.fillStyle = T.ribbon; ctx.fillRect(cx - 2, by + 3, 4, 17); ctx.beginPath(); ctx.ellipse(cx - 4.5, by + 1.5, 4.5, 3, -0.5, 0, 7); ctx.ellipse(cx + 4.5, by + 1.5, 4.5, 3, 0.5, 0, 7); ctx.fill();
+  ctx.textAlign = 'center'; ctx.font = '900 12px Orbitron, system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4; ctx.fillText('+' + g.xp, cx, cy + 14); ctx.shadowBlur = 0;
+  if (g.status === 'won' && age < 1.4) { ctx.globalAlpha = Math.max(0, 1 - age / 1.4); ctx.font = '900 17px Orbitron, system-ui, sans-serif'; ctx.fillStyle = '#fff3a8'; ctx.shadowColor = T.glow; ctx.shadowBlur = 14; ctx.fillText('+' + g.xp + ' XP', cx, y - 6 - age * 40); }
+  ctx.restore();
+}
 // ---------- visual effects ----------
 function burst(x, y, o = {}) {
   const { n = 16, hue = 170, speed = 240, life = 0.7, grav = 360, size = 3, light = 66, spread = Math.PI * 2, angle = 0 } = o;
@@ -356,7 +421,7 @@ function renderProfile() {
     <h3>Misión de hoy</h3>
     <div class="tile ${mi && mi.done ? 'got' : ''}" style="opacity:1;border-color:rgba(44,245,210,.5)"><b>${def ? def.text : '—'}</b>${mi ? (mi.done ? 'Cumplida · +' + def.xp + ' XP' : (Number.isInteger(mi.prog) ? Math.min(mi.prog, def.target) : Math.min(mi.prog, def.target).toFixed(2)) + ' / ' + def.target + ' · recompensa ' + def.xp + ' XP') : ''}</div>
     <h3>Estadísticas</h3>
-    <div class="stat4"><div class="tile"><b class="num">${st.bets}</b><span>apuestas</span></div><div class="tile"><b class="num">${pct}%</b><span>aciertos</span></div><div class="tile"><b class="num">×${st.bestStreak}</b><span>mejor racha</span></div><div class="tile"><b class="num">${fmt$(st.biggest)}</b><span>mayor premio</span></div></div>
+    <div class="stat4"><div class="tile"><b class="num">${st.bets}</b><span>apuestas</span></div><div class="tile"><b class="num">${st.gifts || 0}</b><span>regalos</span></div><div class="tile"><b class="num">${pct}%</b><span>aciertos</span></div><div class="tile"><b class="num">×${st.bestStreak}</b><span>mejor racha</span></div><div class="tile"><b class="num">${fmt$(st.biggest)}</b><span>mayor premio</span></div></div>
     <h3>Estilo de la línea de precio</h3>
     <div class="themes">${THEMES.map((t) => `<button data-th="${t.id}" class="${t.id === theme().id ? 'on' : ''}" ${li.level < t.lvl ? 'disabled' : ''} style="color:${t.dot}">${t.name}${li.level < t.lvl ? ' · Nv ' + t.lvl : ''}</button>`).join('')}</div>
     <h3>Logros · ${Object.keys(prof.ach).length} / ${ACHIEVEMENTS.length}</h3>
@@ -453,6 +518,7 @@ function setLive(ok, text) { $('live').className = 'live' + (ok ? ' ok' : ''); $
 function connect() {
   clearTimeout(wsTimer);
   if (ws) { ws.onclose = null; ws.close(); }
+  gifts.length = 0; nextGift = now() + 10;
   histGain = 1;   hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
   $('price').textContent = '—'; $('price').className = ''; $('chg').textContent = '';
   $('msg').style.display = 'block'; $('msg').textContent = 'Conectando al precio en vivo…'; setLive(false, 'CONECTANDO');
@@ -489,6 +555,11 @@ function onTick(t, p) {
   resolve(prev, cur);
 }
 function resolve(prev, cur) {
+  for (const g of gifts) {
+    if (g.status !== 'open') continue;
+    const s = stepBet(g, prev, cur);
+    if (s === 'won') claimGift(g); else if (s === 'lost') { g.status = 'lost'; g.doneAt = now(); }
+  }
   for (const b of bets) {
     if (b.status !== 'open') continue;
     const s = stepBet(b, prev, cur);
@@ -534,12 +605,14 @@ let lastRebalance = 0;
 setInterval(() => {
   if (!last) return;
   // re-fit the row height to volatility, but only when no bet is on screen (bets are anchored to the row grid)
-  if (bets.length === 0 && now() - lastRebalance > 4) {
+  if (last && now() >= nextGift && board.size && gifts.filter((g) => g.status === 'open').length < 2) { if (spawnGift()) nextGift = now() + 18 + Math.random() * 24; else nextGift = now() + 4; }
+  if (bets.length === 0 && gifts.length === 0 && now() - lastRebalance > 4) {
     lastRebalance = now(); const nb = pickBand(last.p, vol.sigma), q = nb / band;
     if (q > 1.6 || q < 0.62) { band = nb; boardAt = 0; }
   }
   resolve(last, { t: now(), p: last.p });
   bets = bets.filter((b) => b.status === 'open' || now() - b.settledAt < 4);
+  for (let i = gifts.length - 1; i >= 0; i--) if (gifts[i].status !== 'open' && now() - gifts[i].doneAt > 1.6) gifts.splice(i, 1);
   if (now() - lastTickAt > 8) setLive(false, 'SIN DATOS');
 }, 500);
 
@@ -613,7 +686,7 @@ function draw() {
   }
 
   // cells
-  const betKeys = new Set(bets.map((b) => b.k + ':' + b.r));
+  const betKeys = new Set(bets.map((b) => b.k + ':' + b.r)), giftKeys = new Set(gifts.filter((g) => g.status === 'open').map((g) => g.k + ':' + g.r));
   ctx.textAlign = 'center';
   ctx.font = '700 ' + Math.max(16, Math.min(25, cw / 2.9)) + 'px Rajdhani, system-ui, sans-serif';
   let canBet = false;
@@ -628,6 +701,7 @@ function draw() {
     for (let r = rowBot; r <= rowTop; r++) {
       const key = k + ':' + r, c = board.get(key);
       if (!c || betKeys.has(key)) continue;
+      if (giftKeys.has(key)) { if (hover && hover.k === k && hover.r === r && !c.off) canBet = true; continue; }
       const y = yOf((r + 1) * band);
       if (y < TOP + 28) continue;
       if (c.off) { // almost-certain cell: visible but not tappable
@@ -676,6 +750,7 @@ function draw() {
     ctx.globalAlpha = 1; ctx.lineWidth = 1;
   }
 
+  for (const g of gifts) drawGift(g, L, th, g.status === 'open' && betKeys.has(g.k + ':' + g.r));
   // hover tooltip: what this tap would pay
   if (hover && canBet) {
     const c = board.get(hover.k + ':' + hover.r);
@@ -767,6 +842,12 @@ function updateTension(t, dt) {
     if (active && dRows < 0.45) trig = true;
     if (active) { const rem = b.end - t; for (const n of [3, 2, 1]) if (rem <= n && b.lastTick > n) { b.lastTick = n; if (rem > n - 0.6) sfx.tick(n); } }
   }
+  for (const g of gifts) { // gifts glow harder when the price is closing in (no heartbeat: they're free)
+    if (g.status !== 'open' || !last) { g.near = 0; continue; }
+    const active = t >= g.start - 1 && t <= g.end, p = last.p, d = p < g.lo ? g.lo - p : p >= g.hi ? p - g.hi : 0;
+    g.near = active ? Math.max(0, 1 - d / band / 3) : 0;
+    if (t >= g.start && t <= g.end) g.minD = Math.min(g.minD ?? Infinity, d / band); // closest approach (in rows) during its window
+  }
   tension += (ten - tension) * Math.min(1, dt * 6);
   const was = slow > 0.5; slow += ((trig ? 1 : 0) - slow) * Math.min(1, dt * 5);
   if (was !== slow > 0.5) setSlowFilter(slow > 0.5);
@@ -807,4 +888,4 @@ function resize() {
 addEventListener('resize', resize); addEventListener('load', resize); resize();
 ['700 16px Rajdhani', '600 12px Rajdhani', '400 20px Bungee', '900 16px Orbitron'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
 connect(); requestAnimationFrame(frame);
-window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove } };
+window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift } };
