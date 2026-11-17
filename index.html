@@ -71,7 +71,32 @@
   .icon { width:36px; height:36px; display:grid; place-items:center; border-radius:11px; border:1px solid var(--line); background:rgba(0,0,0,.3); color:var(--dim); cursor:pointer; font:700 16px var(--fu); transition:.15s; }
   .icon:hover { color:var(--text); border-color:var(--accent2); box-shadow:0 0 14px rgba(184,107,255,.4); transform:translateY(-1px); }
   .icon.muted { color:var(--loss); }
-  .lvl { display:flex; flex-direction:column; gap:4px; align-items:stretch; min-width:70px; padding:5px 11px; border-radius:11px; border:1px solid rgba(184,107,255,.55); background:linear-gradient(180deg,rgba(184,107,255,.22),rgba(184,107,255,.05)); color:#fff; cursor:pointer; font:400 12px var(--fd); letter-spacing:.06em; transition:.15s; }
+  .lvl { display:flex; flex-direction:row; gap:8px; align-items:center; padding:4px 10px 4px 5px; border-radius:11px; border:1px solid rgba(184,107,255,.55); background:linear-gradient(180deg,rgba(184,107,255,.22),rgba(184,107,255,.05)); color:#fff; cursor:pointer; font:400 12px var(--fd); letter-spacing:.06em; transition:.15s; }
+  .lvl .lt { display:flex; flex-direction:column; gap:4px; min-width:52px; }
+  .av { flex:none; display:inline-block; width:32px; height:32px; border-radius:50%; overflow:hidden; border:2px solid var(--accent2); box-shadow:0 0 12px rgba(184,107,255,.55); background:#12082a; }
+  .av svg, .av img { display:block; width:100%; height:100%; object-fit:cover; }
+  .av.big { width:84px; height:84px; border-width:3px; box-shadow:0 0 24px rgba(184,107,255,.6); }
+  .who { display:flex; gap:16px; align-items:center; }
+  .nameinp { background:rgba(0,0,0,.35); border:1px solid var(--line); border-radius:10px; color:#fff; font:700 17px var(--fd); letter-spacing:.06em; padding:6px 10px; width:210px; outline:none; margin-bottom:4px; text-transform:uppercase; }
+  .nameinp:focus { border-color:var(--accent); box-shadow:0 0 14px rgba(44,245,210,.35); }
+  .avgrid { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+  .avgrid button.avb { width:58px; height:58px; padding:0; overflow:hidden; border-radius:16px; border:2px solid transparent; background:#12082a; cursor:pointer; transition:.15s; }
+  .avgrid button.avb:hover { transform:translateY(-2px) scale(1.05); border-color:var(--accent2); } .avgrid button.avb.on { border-color:var(--accent); box-shadow:0 0 18px rgba(44,245,210,.6); }
+  .avgrid svg, .avgrid img { width:100%; height:100%; display:block; object-fit:cover; }
+  .setrow { display:flex; align-items:center; gap:14px; padding:8px 0; border-bottom:1px solid rgba(255,255,255,.05); } .setrow label { flex:1; display:flex; align-items:center; gap:10px; font:700 15px var(--fu); cursor:pointer; }
+  .setrow input[type=checkbox] { width:18px; height:18px; accent-color:var(--accent); } .setrow input[type=range] { width:170px; accent-color:var(--accent2); }
+  .walcard { padding:16px 18px; border-radius:16px; border:1px solid rgba(255,210,74,.55); background:linear-gradient(135deg,rgba(255,210,74,.14),rgba(184,107,255,.12)); box-shadow:0 0 30px rgba(255,210,74,.15); }
+  .walcard small { font:700 11px var(--fu); letter-spacing:.16em; text-transform:uppercase; color:var(--gold); } .walcard .big { display:block; font:900 36px var(--fn); margin:2px 0 8px; text-shadow:0 0 18px rgba(255,210,74,.45); } .walcard .big i { font:700 13px var(--fu); font-style:normal; color:var(--dim); letter-spacing:.1em; }
+  .addr { display:flex; align-items:center; gap:10px; } .addr code { font:600 15px ui-monospace, Consolas, monospace; padding:5px 10px; border-radius:9px; background:rgba(0,0,0,.4); color:#e8defc; letter-spacing:.04em; }
+  .warn { margin-top:10px; font:600 13px var(--fu); color:#ffcf8a; }
+  .chips { display:flex; gap:9px; flex-wrap:wrap; } .chips .btn { min-width:84px; }
+  .ledger { display:flex; flex-direction:column; gap:6px; max-height:260px; overflow:auto; }
+  .ledger div { display:grid; grid-template-columns:30px 1fr auto; gap:11px; align-items:center; padding:7px 11px; border-radius:10px; background:rgba(255,255,255,.035); border-left:3px solid var(--c); font:600 14px var(--fu); }
+  .ledger i { width:26px; height:26px; border-radius:8px; display:grid; place-items:center; font:900 14px var(--fn); font-style:normal; color:var(--c); background:color-mix(in srgb,var(--c) 18%, transparent); }
+  .ledger small { display:block; font:500 11.5px ui-monospace, Consolas, monospace; color:var(--dim); } .ledger b { font:900 14px var(--fn); color:var(--c); }
+  .ledger .dep, .ledger .payout { --c:var(--win); } .ledger .wd { --c:var(--gold); } .ledger .bet { --c:var(--loss); } .empty { color:var(--dim); padding:10px 2px; }
+  .bal { cursor:pointer; } .bal:hover { box-shadow:0 0 24px rgba(255,210,74,.35); }
+  .icon.off { color:var(--loss); }
   .lvl:hover { box-shadow:0 0 18px rgba(184,107,255,.5); transform:translateY(-1px); }
   .lvl i { display:block; height:5px; border-radius:5px; background:rgba(255,255,255,.12); overflow:hidden; }
   .lvl u { display:block; height:100%; width:0; background:linear-gradient(90deg,var(--accent),var(--accent2),var(--hot)); transition:width .5s; text-decoration:none; box-shadow:0 0 8px var(--accent2); }
@@ -130,7 +155,7 @@
   #ach b { display:block; color:var(--gold); font:400 11.5px var(--fd); letter-spacing:.1em; margin-bottom:3px; text-shadow:0 0 10px rgba(255,210,74,.6); } #ach em { color:var(--accent); font:900 12px var(--fn); font-style:normal; float:right; }
   #share { position:fixed; right:16px; bottom:44px; z-index:5; display:none; padding:11px 18px; border-radius:99px; border:1px solid var(--accent); color:#fff; font:400 13px var(--fd); letter-spacing:.06em; cursor:pointer; animation:in .35s; box-shadow:0 0 22px rgba(44,245,210,.4); }
   #share.on { display:block; } #share:hover { box-shadow:0 0 30px rgba(44,245,210,.7); }
-  #prof { position:fixed; inset:0; z-index:7; display:grid; place-items:center; background:rgba(4,1,12,.7); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); } #prof.hide { display:none; }
+  #prof, #wal { position:fixed; inset:0; z-index:7; display:grid; place-items:center; background:rgba(4,1,12,.7); backdrop-filter:blur(6px); -webkit-backdrop-filter:blur(6px); } #prof.hide, #wal.hide { display:none; }
   .sheet { width:min(780px,94vw); max-height:90vh; overflow:auto; padding:22px 24px; background:linear-gradient(160deg,#1b0d3a,#0c0620 55%) !important; border:1px solid rgba(184,107,255,.6) !important; box-shadow:0 0 50px rgba(184,107,255,.35); scrollbar-width:thin; scrollbar-color:#3a2570 transparent; }
   .sheet h2 { margin:0 0 4px; font:400 28px var(--fd); letter-spacing:.04em; background:linear-gradient(90deg,var(--gold),var(--hot)); -webkit-background-clip:text; background-clip:text; color:transparent; filter:drop-shadow(0 0 10px rgba(255,160,50,.5)); }
   .sheet h3 { margin:20px 0 9px; font:400 12px var(--fd); color:var(--accent); letter-spacing:.14em; text-transform:uppercase; text-shadow:0 0 10px rgba(44,245,210,.5); }
@@ -152,7 +177,8 @@
   .row { display:flex; gap:10px; align-items:center; justify-content:space-between; }
 
   @media (max-width:1560px) { .badge { display:none; } .bar { gap:9px; } .bal { min-width:136px; } }
-  @media (max-width:1280px) { .live span { display:none; } .brand span { font-size:19px; } }
+  @media (max-width:1560px) { .live span { display:none; } }
+  @media (max-width:1280px) { .brand span { font-size:19px; } }
   @media (max-width:820px) {
     .bar { flex-wrap:wrap; gap:7px 9px; padding:8px 10px; } .badge, .brand span, #foot { display:none; }
     .price b { font-size:20px; } .grow { display:none; } .bal { min-width:0; margin-left:auto; }
@@ -173,12 +199,13 @@
   <div class="tabs" id="tabs"></div>
   <div class="price"><b id="price">—</b><small id="chg"></small></div>
   <div class="live" id="live"><i></i><span id="livetxt">CONECTANDO</span></div>
-  <button class="lvl" id="lvl" title="Perfil, logros y misión diaria"><b id="lvlnum">NV 1</b><i><u id="lvlbar"></u></i></button>
+  <button class="lvl" id="lvl" title="Perfil, avatar, logros y ajustes"><span class="av" id="lvlav"></span><span class="lt"><b id="lvlnum">NV 1</b><i><u id="lvlbar"></u></i></span></button>
   <div class="streak" id="streak"></div>
   <div class="grow"></div>
   <div class="stakes" id="stakes"></div>
-  <div class="bal" id="balbox"><small>Saldo</small><b id="bal">—</b></div>
-  <button class="icon" id="mute" title="Sonido"></button>
+  <div class="bal" id="balbox" title="Abrir wallet (ficticia)"><small>Wallet</small><b id="bal">—</b></div>
+  <button class="icon" id="music" title="Música de fondo"></button>
+  <button class="icon" id="mute" title="Efectos de sonido"></button>
   <button class="icon" id="reset" title="Reiniciar saldo a $1,000">↺</button>
   <button class="icon" id="helpbtn" title="Cómo jugar">?</button>
 </header>
@@ -196,9 +223,10 @@
 <div id="ach"></div>
 <button id="share" class="card">Compartir victoria</button>
 <div id="prof" class="hide"><div class="sheet card" id="profbody"></div></div>
+<div id="wal" class="hide modal"><div class="sheet card" id="walbody"></div></div>
 <div id="toast" class="card"></div>
 <div id="help" class="card"><div><b>Cómo jugar.</b> Toca una casilla: si el precio la toca dentro de su columna de tiempo, cobras <b>apuesta × multiplicador</b>. Más lejos del precio paga más. Saldo ficticio, precio real.</div><button id="helpok">Entendido</button></div>
 <div id="foot">Precios en vivo de Coinbase · modo práctica</div>
-<script type="module" src="main.js?v=13"></script>
+<script type="module" src="main.js?v=14"></script>
 </body>
 </html>

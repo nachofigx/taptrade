@@ -47,12 +47,20 @@ export function levelInfo(xp) {
 export function missionFor(day) { return MISSIONS[((dayNum(day) % MISSIONS.length) + MISSIONS.length) % MISSIONS.length]; }
 
 export function newProfile() {
-  return { xp: 0, ach: {}, stats: { bets: 0, wins: 0, losses: 0, near: 0, bestStreak: 0, biggest: 0 }, theme: 'aqua', day: null, dayStreak: 0, mission: null };
+  return {
+    xp: 0, ach: {}, stats: { bets: 0, wins: 0, losses: 0, near: 0, bestStreak: 0, biggest: 0 }, theme: 'aqua', day: null, dayStreak: 0, mission: null,
+    name: 'JUGADOR', avatar: { type: 'pixel', seed: 'ace' },
+    wallet: { addr: null, ledger: [] },
+    settings: { music: true, musicVol: 0.6, sfxVol: 1 },
+  };
 }
 
 export function loadProfile(store = globalThis.localStorage) {
   let p = newProfile();
-  try { const raw = store && store.getItem(KEY); if (raw) { const o = JSON.parse(raw); p = { ...p, ...o, stats: { ...p.stats, ...(o.stats || {}) } }; } } catch {}
+  try {
+    const raw = store && store.getItem(KEY);
+    if (raw) { const o = JSON.parse(raw); p = { ...p, ...o, stats: { ...p.stats, ...(o.stats || {}) }, wallet: { ...p.wallet, ...(o.wallet || {}) }, settings: { ...p.settings, ...(o.settings || {}) }, avatar: o.avatar || p.avatar }; }
+  } catch {}
   return p;
 }
 export function saveProfile(p, store = globalThis.localStorage) { try { store && store.setItem(KEY, JSON.stringify(p)); } catch {} }
@@ -66,4 +74,34 @@ export function dailyCheck(p, today = todayStr()) {
   p.day = today;
   p.mission = { day: today, id: m.id, prog: 0, done: false };
   return { xp: Math.min(200, 20 * p.dayStreak), streak: p.dayStreak, newDay: true };
+}
+
+// ---------- avatars (deterministic pixel avatars, no external assets) ----------
+function fnv(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function prng(a) { return () => { a |= 0; a = (a + 0x6d2b79f5) | 0; let t = Math.imul(a ^ (a >>> 15), 1 | a); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; }; }
+export const AVATAR_SEEDS = ['ace', 'nova', 'blitz', 'viper', 'pixel', 'storm', 'echo', 'rogue', 'zen', 'titan', 'luna', 'hex'];
+// 5x5 grid, left-right mirrored (like a tiny creature), colours derived from the seed.
+export function pixelAvatarSVG(seed, size = 64) {
+  const h = fnv(String(seed)), rnd = prng(h), hue = h % 360;
+  let grid, n;
+  do {
+    grid = []; n = 0;
+    for (let y = 0; y < 5; y++) { const r = [rnd() < 0.58, rnd() < 0.58, rnd() < 0.58]; r[3] = r[1]; r[4] = r[0]; grid.push(r); n += r.filter(Boolean).length; }
+  } while (n < 9 || n > 17);
+  let cells = '';
+  grid.forEach((row, y) => row.forEach((on, x) => { if (on) cells += `<rect x="${10 + x * 16}" y="${10 + y * 16}" width="14" height="14" rx="3" fill="hsl(${(hue + (y % 2 ? 45 : 0)) % 360},90%,${y < 2 ? 66 : 58}%)"/>`; }));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}"><rect width="100" height="100" rx="26" fill="hsl(${hue},55%,13%)"/>${cells}</svg>`;
+}
+
+// ---------- fake wallet (simulated; no keys, no network) ----------
+const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
+export function randomB58(n, rnd = (k) => { const a = new Uint8Array(k); globalThis.crypto.getRandomValues(a); return a; }) {
+  const a = rnd(n); let s = ''; for (let i = 0; i < n; i++) s += B58[a[i] % B58.length]; return s;
+}
+export const makeAddr = () => randomB58(44);
+export const shortAddr = (a) => (a ? a.slice(0, 4) + '…' + a.slice(-4) : '—');
+export function addLedger(p, type, amount, now = Date.now()) {
+  const e = { t: now, type, amount: Math.round(amount * 100) / 100, sig: randomB58(10) };
+  p.wallet.ledger.push(e); if (p.wallet.ledger.length > 80) p.wallet.ledger.shift();
+  return e;
 }

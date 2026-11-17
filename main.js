@@ -1,5 +1,5 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=13';
-import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck } from './progress.js?v=13';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=14';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=14';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -33,11 +33,11 @@ const now = () => Date.now() / 1000;
 
 // ---------- sound (synthesized with Web Audio, no files) ----------
 let actx = null, master = null, muted = localStorage.getItem('tl.mute') === '1';
-function audio() {
-  if (muted) return null;
+function audio() { return muted ? null : ensureCtx(); }
+function ensureCtx() {
   if (!actx) {
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
-    actx = new AC(); master = actx.createGain(); master.gain.value = 0.55;
+    actx = new AC(); master = actx.createGain(); master.gain.value = 0.55 * prof.settings.sfxVol;
     lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 20000; master.connect(lp); lp.connect(actx.destination);
   }
   if (actx.state === 'suspended') actx.resume();
@@ -97,6 +97,59 @@ const sfx = {
 };
 const setSlowFilter = (on) => { if (lp && actx) lp.frequency.setTargetAtTime(on ? 700 : 20000, actx.currentTime, 0.07); };
 const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
+
+// ---------- background music: generated live (synthwave-style loop), no audio files ----------
+const BPM = 104, MSTEP = 60 / BPM / 4;       // 16th-note step in seconds
+const CHORDS = [{ r: 110, t: [0, 3, 7] }, { r: 87.31, t: [0, 4, 7] }, { r: 130.81, t: [0, 4, 7] }, { r: 98, t: [0, 4, 7] }]; // Am F C G
+const ARP = [0, 1, 2, 1, 2, 1, 0, 2];
+let musicOn = prof.settings.music, musicGain = null, musicTimer = 0, mStep = 0, mNext = 0, musicNotes = 0;
+function musicBus() {
+  if (!ensureCtx()) return null;
+  if (!musicGain) { musicGain = actx.createGain(); musicGain.gain.value = 0; musicGain.connect(lp); } // via lowpass => slow-mo muffles the music too
+  return musicGain;
+}
+function setMusicVol() { if (musicGain) musicGain.gain.setTargetAtTime(musicOn ? 0.42 * prof.settings.musicVol : 0, actx.currentTime, 0.2); }
+function mTone(f, t, dur, type, g, cutoff, attack = 0.004) {
+  musicNotes++;
+  const o = actx.createOscillator(), a = actx.createGain(); o.type = type; o.frequency.setValueAtTime(f, t);
+  a.gain.setValueAtTime(0.0001, t); a.gain.linearRampToValueAtTime(g, t + attack); a.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  let out = o; if (cutoff) { const fl = actx.createBiquadFilter(); fl.type = 'lowpass'; fl.frequency.value = cutoff; o.connect(fl); out = fl; }
+  out.connect(a); a.connect(musicGain); o.start(t); o.stop(t + dur + 0.03);
+}
+function mNoise(t, dur, g, f, type) {
+  musicNotes++;
+  const n = Math.floor(actx.sampleRate * dur), buf = actx.createBuffer(1, n, actx.sampleRate), d = buf.getChannelData(0); for (let i = 0; i < n; i++) d[i] = Math.random() * 2 - 1;
+  const s = actx.createBufferSource(); s.buffer = buf; const fl = actx.createBiquadFilter(); fl.type = type; fl.frequency.value = f; const a = actx.createGain();
+  a.gain.setValueAtTime(g, t); a.gain.exponentialRampToValueAtTime(0.0001, t + dur); s.connect(fl); fl.connect(a); a.connect(musicGain); s.start(t);
+}
+function musicStep(i, t) {
+  const bar = Math.floor(i / 8) % 4, k = i % 8, ch = CHORDS[bar], hot = tension > 0.3;
+  if (i % 4 === 0) { // kick, four on the floor
+    musicNotes++; const o = actx.createOscillator(), a = actx.createGain(); o.frequency.setValueAtTime(135, t); o.frequency.exponentialRampToValueAtTime(42, t + 0.16);
+    a.gain.setValueAtTime(0.55, t); a.gain.exponentialRampToValueAtTime(0.0001, t + 0.2); o.connect(a); a.connect(musicGain); o.start(t); o.stop(t + 0.22);
+  }
+  if (k === 4) { mNoise(t, 0.16, 0.16, 1700, 'bandpass'); mTone(190, t, 0.1, 'triangle', 0.12); }               // snare
+  if (k % 4 === 2 || (hot && k % 2 === 1)) mNoise(t, 0.05, k % 4 === 2 ? 0.075 : 0.04, 8500, 'highpass');       // hats
+  if (k === 0 || k === 3 || k === 6) mTone(ch.r, t, MSTEP * 2.3, 'sawtooth', 0.2, 430);                          // bass
+  const arpHz = ch.r * 4 * Math.pow(2, ch.t[ARP[k] % 3] / 12) * (hot && k % 2 ? 2 : 1);
+  mTone(arpHz, t, MSTEP * 0.95, 'square', hot ? 0.05 : 0.036, 2600);                                              // arpeggio
+  if (k === 0) for (const semi of ch.t) for (const det of [-6, 6]) { const f = ch.r * 2 * Math.pow(2, semi / 12), d = f * Math.pow(2, det / 1200); mTone(d, t, MSTEP * 8.2, 'sawtooth', 0.02, 900, 0.5); } // pad
+}
+function musicTick() {
+  if (!musicOn || !actx || document.hidden) return;
+  const now0 = actx.currentTime; if (mNext < now0 - 0.3) mNext = now0 + 0.05;
+  while (mNext < now0 + 0.2) { musicStep(mStep, mNext); mStep = (mStep + 1) % 32; mNext += MSTEP; }
+}
+function startMusic() {
+  if (!musicOn || !musicBus()) return; setMusicVol();
+  if (!musicTimer) { mNext = actx.currentTime + 0.1; musicTimer = setInterval(musicTick, 40); }
+}
+function stopMusic() { clearInterval(musicTimer); musicTimer = 0; setMusicVol(); }
+function setMusic(on) { musicOn = on; prof.settings.music = on; saveProfile(prof); renderMusic(); if (on) startMusic(); else stopMusic(); }
+const NOTE = '<svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l11-2v13"/><circle cx="6" cy="18" r="3" fill="currentColor"/><circle cx="17" cy="16" r="3" fill="currentColor"/>';
+function renderMusic() { $('music').className = 'icon' + (musicOn ? '' : ' off'); $('music').innerHTML = NOTE + (musicOn ? '</svg>' : '<path d="M3 3l18 18"/></svg>'); }
+['pointerdown', 'keydown'].forEach((ev) => addEventListener(ev, () => { if (musicOn) startMusic(); }, { passive: true }));
+document.addEventListener('visibilitychange', () => { if (!document.hidden && musicOn && musicTimer) mNext = 0; });
 
 // ---------- visual effects ----------
 function burst(x, y, o = {}) {
@@ -209,6 +262,7 @@ function renderStakes() {
 let flashT;
 function renderBal(dir) {
   $('bal').textContent = fmt$(balance); localStorage.setItem('tl.bal', balance);
+  if ($('wal') && !$('wal').classList.contains('hide')) renderWallet();
   if (dir) {
     const bx = $('balbox'); bx.className = 'bal ' + dir; clearTimeout(flashT);
     flashT = setTimeout(() => { bx.className = 'bal'; }, 700);
@@ -237,7 +291,7 @@ function logResult(bet) {
 }
 // ---------- progression: XP, levels, achievements, daily mission, share ----------
 const persist = () => saveProfile(prof);
-function renderLevel() { const li = levelInfo(prof.xp); $('lvlnum').textContent = 'NV ' + li.level; $('lvlbar').style.width = (100 * li.cur / li.need) + '%'; }
+function renderLevel() { $('lvlav').innerHTML = avatarInner(prof.avatar, 32); const li = levelInfo(prof.xp); $('lvlnum').textContent = 'NV ' + li.level; $('lvlbar').style.width = (100 * li.cur / li.need) + '%'; }
 function addXP(n) {
   const before = levelInfo(prof.xp).level; prof.xp += n; const after = levelInfo(prof.xp).level; persist(); renderLevel();
   if (after > before) {
@@ -290,8 +344,15 @@ function renderProfile() {
   const li = levelInfo(prof.xp), st = prof.stats, mi = prof.mission, def = mi && MISSIONS.find((x) => x.id === mi.id);
   const pct = st.bets ? Math.round((100 * st.wins) / Math.max(1, st.wins + st.losses)) : 0;
   $('profbody').innerHTML = `
-    <div class="row"><div><h2>NIVEL ${li.level}</h2><div class="sub">${li.cur} / ${li.need} XP · racha diaria de ${prof.dayStreak} día(s)</div></div><button class="btn" id="profclose">Cerrar</button></div>
+    <div class="row"><div class="who"><span class="av big">${avatarInner(prof.avatar, 84)}</span><div><input class="nameinp" id="nameInp" maxlength="14" value="${esc(prof.name)}" aria-label="Nombre"><h2 style="font-size:22px">NIVEL ${li.level}</h2><div class="sub">${li.cur} / ${li.need} XP · racha diaria de ${prof.dayStreak} día(s)</div></div></div><button class="btn" id="profclose">Cerrar</button></div>
     <div class="xpbar"><u style="width:${(100 * li.cur / li.need).toFixed(1)}%"></u></div>
+    <h3>Avatar</h3>
+    <div class="avgrid">${AVATAR_SEEDS.map((sd) => `<button class="avb ${prof.avatar.type === 'pixel' && prof.avatar.seed === sd ? 'on' : ''}" data-seed="${sd}" title="${sd}">${pixelAvatarSVG(sd, 54)}</button>`).join('')}
+      <button class="btn" id="avrand">Aleatorio</button><button class="btn" id="avup">Subir foto</button><input type="file" id="avfile" accept="image/*" hidden></div>
+    <div class="sub" style="margin-top:6px">Tu foto se reduce a 96×96 y se queda solo en este navegador.</div>
+    <h3>Sonido</h3>
+    <div class="setrow"><label><input type="checkbox" id="setMusic" ${musicOn ? 'checked' : ''}> Música de fondo</label><input type="range" id="volMusic" min="0" max="100" value="${Math.round(prof.settings.musicVol * 100)}"></div>
+    <div class="setrow"><label><input type="checkbox" id="setSfx" ${muted ? '' : 'checked'}> Efectos de sonido</label><input type="range" id="volSfx" min="0" max="100" value="${Math.round(prof.settings.sfxVol * 100)}"></div>
     <h3>Misión de hoy</h3>
     <div class="tile ${mi && mi.done ? 'got' : ''}" style="opacity:1;border-color:rgba(44,245,210,.5)"><b>${def ? def.text : '—'}</b>${mi ? (mi.done ? 'Cumplida · +' + def.xp + ' XP' : (Number.isInteger(mi.prog) ? Math.min(mi.prog, def.target) : Math.min(mi.prog, def.target).toFixed(2)) + ' / ' + def.target + ' · recompensa ' + def.xp + ' XP') : ''}</div>
     <h3>Estadísticas</h3>
@@ -302,16 +363,78 @@ function renderProfile() {
     <div class="grid2">${ACHIEVEMENTS.map((a) => `<div class="tile ach ${prof.ach[a.id] ? 'got' : ''}"><span class="medal">${prof.ach[a.id] ? '★' : '?'}</span><div><b>${a.name}</b>${a.desc}</div></div>`).join('')}</div>
     <h3>Compartir</h3>
     <button class="btn pri" id="profshare">Compartir mi última victoria grande</button>`;
-  $('profclose').onclick = closeProfile; $('profshare').onclick = shareCard;
+  $('profclose').onclick = closeProfile; $('profshare').onclick = shareCard; bindProfileExtras();
   $('profbody').querySelectorAll('[data-th]').forEach((b) => { b.onclick = () => { prof.theme = b.dataset.th; persist(); renderProfile(); }; });
 }
 function openProfile() { renderProfile(); $('prof').classList.remove('hide'); }
 function closeProfile() { $('prof').classList.add('hide'); }
-$('lvl').onclick = openProfile; $('share').onclick = shareCard;
+// ---- avatar, name
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+function avatarInner(av, size) { return av && av.type === 'img' ? '<img alt="" src="' + av.data + '">' : pixelAvatarSVG(av ? av.seed : 'ace', size); }
+function setAvatar(av) { prof.avatar = av; persist(); renderLevel(); if (!$('prof').classList.contains('hide')) renderProfile(); if (!$('wal').classList.contains('hide')) renderWallet(); }
+function uploadAvatar(file) {
+  if (!file || !/^image\//.test(file.type)) return toast('Elige un archivo de imagen', 'l');
+  if (file.size > 6e6) return toast('La imagen pesa más de 6 MB', 'l');
+  const url = URL.createObjectURL(file), img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = c.height = 96; const g = c.getContext('2d'), s = Math.min(img.width, img.height);
+    g.drawImage(img, (img.width - s) / 2, (img.height - s) / 2, s, s, 0, 0, 96, 96); URL.revokeObjectURL(url);
+    setAvatar({ type: 'img', data: c.toDataURL('image/jpeg', 0.85) }); toast('Avatar actualizado');
+  };
+  img.onerror = () => { URL.revokeObjectURL(url); toast('No pude leer esa imagen', 'l'); };
+  img.src = url;
+}
+// ---- fake wallet (simulated: no keys, no network, no real funds)
+if (!prof.wallet.addr) { prof.wallet.addr = makeAddr(); persist(); }
+const WTYPES = { deposit: ['dep', '↓', 'Depósito'], withdraw: ['wd', '↑', 'Retiro'], bet: ['bet', '−', 'Apuesta'], payout: ['payout', '+', 'Premio'] };
+function renderWallet() {
+  const rows = prof.wallet.ledger.slice(-14).reverse().map((e) => {
+    const [cls, ico, label] = WTYPES[e.type] || ['bet', '·', e.type], d = new Date(e.t);
+    return `<div class="${cls}"><i>${ico}</i><span>${label}<small>${e.sig}… · ${d.toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' })}</small></span><b>${e.amount >= 0 ? '+' : '−'}${fmt$(Math.abs(e.amount))}</b></div>`;
+  }).join('');
+  $('walbody').innerHTML = `
+    <div class="row"><div class="who"><span class="av big">${avatarInner(prof.avatar, 84)}</span><div><h2>WALLET</h2><div class="sub">${esc(prof.name)} · Solana Devnet (simulada)</div></div></div><button class="btn" id="walclose">Cerrar</button></div>
+    <div class="walcard" style="margin-top:14px"><small>Saldo disponible</small><b class="big">${fmt$(balance)} <i>USDC ficticio</i></b>
+      <div class="addr"><code title="${prof.wallet.addr}">${shortAddr(prof.wallet.addr)}</code><button class="btn" id="walcopy">Copiar dirección</button></div>
+      <div class="warn">Wallet de práctica: la dirección y los fondos son ficticios. No guarda claves y no se conecta a ninguna red. No envíes dinero real aquí.</div></div>
+    <h3>Depositar (ficticio)</h3><div class="chips">${[100, 500, 1000, 5000].map((n) => `<button class="btn" data-dep="${n}">+${fmt$(n).replace('.00', '')}</button>`).join('')}</div>
+    <h3>Retirar (ficticio)</h3><div class="chips">${[100, 500, 1000].map((n) => `<button class="btn" data-wd="${n}">−${fmt$(n).replace('.00', '')}</button>`).join('')}<button class="btn" data-wd="all">Todo</button></div>
+    <h3>Actividad</h3><div class="ledger">${rows || '<div class="empty">Sin movimientos todavía.</div>'}</div>`;
+  $('walclose').onclick = closeWallet;
+  $('walcopy').onclick = async () => { try { await navigator.clipboard.writeText(prof.wallet.addr); toast('Dirección copiada (ficticia)'); } catch { toast('No pude copiar en este navegador', 'l'); } };
+  $('walbody').querySelectorAll('[data-dep]').forEach((b) => { b.onclick = () => walletMove(+b.dataset.dep); });
+  $('walbody').querySelectorAll('[data-wd]').forEach((b) => { b.onclick = () => walletMove(-(b.dataset.wd === 'all' ? balance : +b.dataset.wd)); });
+}
+function walletMove(amt) {
+  if (amt > 0 && balance + amt > 1e6) return toast('Límite de saldo ficticio: $1,000,000', 'l');
+  if (amt < 0 && -amt > balance + 1e-9) return toast('Saldo insuficiente', 'l');
+  if (Math.abs(amt) < 0.01) return;
+  balance = Math.max(0, balance + amt); addLedger(prof, amt > 0 ? 'deposit' : 'withdraw', amt); persist();
+  renderBal(amt > 0 ? 'up' : 'down'); renderWallet(); sfx.tap(3); toast((amt > 0 ? 'Depósito' : 'Retiro') + ' ficticio: ' + fmt$(Math.abs(amt)));
+}
+function openWallet() { renderWallet(); $('wal').classList.remove('hide'); }
+function closeWallet() { $('wal').classList.add('hide'); }
+$('balbox').onclick = openWallet;
+$('wal').addEventListener('pointerdown', (e) => { if (e.target === $('wal')) closeWallet(); });
+// ---- profile extras: name, avatar picker, sound settings
+function bindProfileExtras() {
+  const ni = $('nameInp');
+  ni.oninput = () => { const v = ni.value.replace(/[^\p{L}\p{N} _-]/gu, '').toUpperCase().slice(0, 14); ni.value = v; prof.name = v.trim() || 'JUGADOR'; persist(); };
+  $('profbody').querySelectorAll('[data-seed]').forEach((b) => { b.onclick = () => setAvatar({ type: 'pixel', seed: b.dataset.seed }); });
+  $('avrand').onclick = () => setAvatar({ type: 'pixel', seed: 'r' + Math.random().toString(36).slice(2, 8) });
+  $('avfile').onchange = () => uploadAvatar($('avfile').files[0]);
+  $('avup').onclick = () => $('avfile').click();
+  $('setMusic').onchange = (e) => setMusic(e.target.checked);
+  $('volMusic').oninput = (e) => { prof.settings.musicVol = e.target.value / 100; persist(); if (!musicOn && prof.settings.musicVol > 0) { setMusic(true); $('setMusic').checked = true; } setMusicVol(); };
+  $('setSfx').onchange = (e) => { muted = !e.target.checked; localStorage.setItem('tl.mute', muted ? '1' : '0'); renderMute(); if (!muted) sfx.tap(3); };
+  $('volSfx').oninput = (e) => { prof.settings.sfxVol = e.target.value / 100; persist(); if (master) master.gain.setTargetAtTime(0.55 * prof.settings.sfxVol, actx.currentTime, 0.03); };
+  $('volSfx').onchange = () => sfx.tap(4);
+}
+$('lvl').onclick = openProfile; $('share').onclick = shareCard; $('music').onclick = () => { setMusic(!musicOn); };
 $('prof').addEventListener('pointerdown', (e) => { if (e.target === $('prof')) closeProfile(); });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') closeProfile(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeProfile(); closeWallet(); } });
 
-renderTabs(); renderStakes(); renderBal(); renderStats(); renderStreak(); renderMute(); renderLevel();
+renderTabs(); renderStakes(); renderBal(); renderStats(); renderStreak(); renderMute(); renderMusic(); renderLevel();
 const dc = dailyCheck(prof); persist();
 if (dc) setTimeout(() => { achToast('Racha diaria · día ' + dc.streak, 'Vuelve mañana para seguir sumando', dc.xp); addXP(dc.xp); }, 1800);
 $('mute').onclick = () => { muted = !muted; localStorage.setItem('tl.mute', muted ? '1' : '0'); renderMute(); if (!muted) { audio(); sfx.tap(3); } };
@@ -376,7 +499,7 @@ function settle(b, s, tt) {
   b.status = s; b.settledAt = now();
   const L = layout(), cx = xOf(L, b.start) + L.cw / 2, cy = yOf(b.hi) + RH / 2, profit = b.stake * (b.mult - 1);
   if (s === 'won') {
-    balance += b.stake * b.mult; wins++; pnl += profit; streak++; bestStreak = Math.max(bestStreak, streak); renderBal('up');
+    balance += b.stake * b.mult; addLedger(prof, 'payout', b.stake * b.mult); wins++; pnl += profit; streak++; bestStreak = Math.max(bestStreak, streak); renderBal('up');
     const big = b.mult >= 8, mega = b.mult >= 25;
     burst(cx, cy, { n: big ? 70 : 34, hue: 140, speed: big ? 420 : 300, life: 0.9, size: big ? 4 : 3 }); burst(cx, cy, { n: 18, hue: 50, speed: 220, light: 75 });
     ring(cx, cy, 140, big ? 1.8 : 1);
@@ -667,7 +790,7 @@ cv.addEventListener('pointerdown', (e) => {
   audio();
   if (balance < stake) { sfx.error(); return toast('Saldo insuficiente para $' + fmtStake(stake), 'l'); }
   if (bets.some((b) => b.status === 'open' && b.k === c.k && b.r === c.r)) return;
-  balance -= stake; renderBal('down');
+  balance -= stake; addLedger(prof, 'bet', -stake); renderBal('down');
   bets.push({ id: nextId++, k: c.k, r: c.r, start: c.k * SLOT, end: (c.k + 1) * SLOT, lo: c.r * band, hi: (c.r + 1) * band, stake, mult: cell.m, status: 'open', placedAt: t, lastTick: 99, int: 0 });
   const L = layout(), px = xOf(L, c.k * SLOT) + L.cw / 2, py = yOf((c.r + 1) * band) + RH / 2, h = hue(cell.m);
   burst(px, py, { n: 14 + Math.min(14, Math.round(cell.m)), hue: h, speed: 200, life: 0.55, size: 2.6 }); ring(px, py, h, 0.8);
@@ -684,4 +807,4 @@ function resize() {
 addEventListener('resize', resize); addEventListener('load', resize); resize();
 ['700 16px Rajdhani', '600 12px Rajdhani', '400 20px Bungee', '900 16px Orbitron'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
 connect(); requestAnimationFrame(frame);
-window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile } };
+window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove } };
