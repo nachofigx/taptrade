@@ -1,5 +1,5 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=10';
-import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck } from './progress.js?v=10';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=11';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck } from './progress.js?v=11';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -473,7 +473,7 @@ function draw() {
   // cells
   const betKeys = new Set(bets.map((b) => b.k + ':' + b.r));
   ctx.textAlign = 'center';
-  ctx.font = '700 ' + Math.max(12.5, Math.min(17, cw / 4)) + 'px Rajdhani, system-ui, sans-serif';
+  ctx.font = '700 ' + Math.max(16, Math.min(25, cw / 2.9)) + 'px Rajdhani, system-ui, sans-serif';
   let canBet = false;
   for (let k = k0; k <= k1; k++) {
     const x0 = xOf(L, k * SLOT), x1 = x0 + cw;
@@ -482,7 +482,7 @@ function draw() {
     // column header: seconds until it starts
     ctx.fillStyle = 'rgba(134,147,176,0.75)'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
     ctx.fillText('+' + Math.max(0, Math.round(k * SLOT - L.t)) + 's', x0 + cw / 2, TOP + 16);
-    ctx.font = '700 ' + Math.max(12.5, Math.min(17, cw / 4)) + 'px Rajdhani, system-ui, sans-serif';
+    ctx.font = '700 ' + Math.max(16, Math.min(25, cw / 2.9)) + 'px Rajdhani, system-ui, sans-serif';
     for (let r = rowBot; r <= rowTop; r++) {
       const key = k + ':' + r, c = board.get(key);
       if (!c || betKeys.has(key)) continue;
@@ -518,7 +518,7 @@ function draw() {
     rr(x0 + g + 0.5, y + g + 0.5, cw - 2 * g - 1, RH - 2 * g - 1, rad);
     ctx.fillStyle = b.status === 'open' ? 'rgba(255,210,74,0.20)' : b.status === 'won' ? 'rgba(61,255,138,0.30)' : 'rgba(255,77,109,0.22)';
     ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = col; ctx.font = '700 ' + Math.max(12.5, Math.min(17, cw / 4)) + 'px Rajdhani, system-ui, sans-serif';
+    ctx.fillStyle = col; ctx.font = '700 ' + Math.max(12, Math.min(16, cw / 4.3)) + 'px Rajdhani, system-ui, sans-serif';
     ctx.fillText(b.status === 'open' ? '$' + b.stake + '·' + fmtMult(b.mult) : b.status === 'won' ? '✓' : '✗', x0 + cw / 2, y + RH / 2 + 0.5);
     if (b.status === 'open' && L.t >= b.start && L.t <= b.end) { // countdown bar: how much of the 5 s window is left
       const f = Math.max(0, (b.end - L.t) / SLOT); ctx.fillStyle = f < 0.4 ? '#ff4d6d' : '#3dff8a'; ctx.fillRect(x0 + g + 5, y + RH - g - 7, (cw - 2 * g - 10) * f, 3);
