@@ -6,7 +6,7 @@ export const LOCK = 3;        // betting closes this many seconds before a colum
 export const EDGE = 0.08;     // house edge (expected return for the player is 1 - EDGE)
 export const MIN_P = 0.012;   // cells less likely than this are not offered
 export const MAX_MULT = 50;
-export const MIN_MULT = 1.1;
+export const MIN_MULT = 1.02; // below this the cell is shown but disabled (almost certain to hit)
 export const PATHS = 2500;
 export const STEPS = 240;     // horizon = STEPS * DT = 120 seconds
 export const DT = 0.5;
@@ -85,8 +85,8 @@ export function computeBoard({ S, sigma, now, slotFrom, slotTo, rowFrom, rowTo, 
       const P = counts[r - rowFrom] / PATHS;
       if (P < MIN_P) continue;
       const m = Math.min(MAX_MULT, Math.floor(((1 - EDGE) / P) * 100) / 100);
-      if (m < MIN_MULT) continue;
-      out.set(k + ':' + r, { m, p: P });
+      // Too likely to pay a meaningful multiplier: keep the cell on the board but not tappable.
+      out.set(k + ':' + r, m < MIN_MULT ? { m: 0, p: P, off: true } : { m, p: P });
     }
   }
   return out;

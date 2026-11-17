@@ -1,4 +1,4 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet, niceBand } from './engine.js?v=5';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet, niceBand } from './engine.js?v=6';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -359,6 +359,11 @@ function draw() {
       if (!c || betKeys.has(key)) continue;
       const y = yOf((r + 1) * band);
       if (y < TOP + 28) continue;
+      if (c.off) { // almost-certain cell: visible but not tappable
+        rr(x0 + g, y + g, cw - 2 * g, RH - 2 * g, rad); ctx.fillStyle = 'rgba(255,255,255,0.022)'; ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.stroke();
+        ctx.fillStyle = 'rgba(134,147,176,0.4)'; ctx.fillText('—', x0 + cw / 2, y + RH / 2 + 0.5); continue;
+      }
       const hh = hue(c.m), isHover = hover && hover.k === k && hover.r === r;
       if (isHover) { canBet = true; ctx.shadowColor = `hsla(${hh},90%,60%,0.7)`; ctx.shadowBlur = 16; }
       rr(x0 + g, y + g, cw - 2 * g, RH - 2 * g, rad);
@@ -399,7 +404,7 @@ function draw() {
   // hover tooltip: what this tap would pay
   if (hover && canBet) {
     const c = board.get(hover.k + ':' + hover.r);
-    if (c) {
+    if (c && !c.off) {
       const x = xOf(L, hover.k * SLOT) + cw / 2, y = yOf((hover.r + 1) * band) - 6;
       const txt = `$${stake} → ${fmt$(stake * c.m)}`;
       ctx.font = '700 12px ui-sans-serif, system-ui, sans-serif';
@@ -482,7 +487,7 @@ cv.addEventListener('pointerdown', (e) => {
   const c = cellAt(e.clientX, e.clientY); hover = c;
   if (!c || e.clientY < TOP + 28) return;
   const cell = board.get(c.k + ':' + c.r), t = now();
-  if (!cell || c.k * SLOT < t + LOCK) return;
+  if (!cell || cell.off || c.k * SLOT < t + LOCK) return;
   audio();
   if (balance < stake) { sfx.error(); return toast('Saldo insuficiente para $' + stake, 'l'); }
   if (bets.some((b) => b.status === 'open' && b.k === c.k && b.r === c.r)) return;
@@ -500,4 +505,4 @@ function resize() {
 }
 addEventListener('resize', resize); addEventListener('load', resize); resize();
 connect(); requestAnimationFrame(frame);
-window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx } };
+window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx } };
