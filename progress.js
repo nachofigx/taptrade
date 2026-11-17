@@ -27,6 +27,9 @@ export const ACHIEVEMENTS = [
   { id: 'gift_1',     name: 'Cazador de regalos', desc: 'Atrapa tu primer regalo',                xp: 50 },
   { id: 'gift_10',    name: 'Coleccionista',      desc: 'Atrapa 10 regalos',                      xp: 150 },
   { id: 'gift_gold',  name: 'Tesoro dorado',      desc: 'Atrapa un regalo dorado',                xp: 200 },
+  { id: 'golden_5',   name: 'Lluvia de oro',      desc: 'Atrapa 5 regalos durante una hora dorada', xp: 150 },
+  { id: 'flash_5',    name: 'Vidente',            desc: 'Acierta 5 retos relámpago',              xp: 150 },
+  { id: 'chest_7',    name: 'Semana de cofres',   desc: 'Abre 7 cofres diarios',                  xp: 150 },
 ];
 
 export const MISSIONS = [
@@ -51,10 +54,14 @@ export function missionFor(day) { return MISSIONS[((dayNum(day) % MISSIONS.lengt
 
 export function newProfile() {
   return {
-    xp: 0, ach: {}, stats: { bets: 0, wins: 0, losses: 0, near: 0, bestStreak: 0, biggest: 0, gifts: 0 }, theme: 'aqua', day: null, dayStreak: 0, mission: null,
+    xp: 0, ach: {}, stats: { bets: 0, wins: 0, losses: 0, near: 0, bestStreak: 0, biggest: 0, gifts: 0, goldCatches: 0, flashWins: 0, flashTotal: 0, chests: 0 }, theme: 'aqua', day: null, dayStreak: 0, mission: null,
     name: 'JUGADOR', avatar: { type: 'pixel', seed: 'ace' },
     wallet: { addr: null, ledger: [] },
-    settings: { music: true, musicVol: 0.6, sfxVol: 1 },
+    cosm: { owned: [], frame: 'none', trail: 'none', tune: 'synth' },
+    season: { id: null, xp: 0, claimed: [] },
+    chest: { day: null },
+    best: null,   // clip of the biggest win (see extras.js buildClip)
+    settings: { music: true, musicVol: 0.6, sfxVol: 1, voice: true, turbo: false },
   };
 }
 
@@ -62,7 +69,7 @@ export function loadProfile(store = globalThis.localStorage) {
   let p = newProfile();
   try {
     const raw = store && store.getItem(KEY);
-    if (raw) { const o = JSON.parse(raw); p = { ...p, ...o, stats: { ...p.stats, ...(o.stats || {}) }, wallet: { ...p.wallet, ...(o.wallet || {}) }, settings: { ...p.settings, ...(o.settings || {}) }, avatar: o.avatar || p.avatar }; }
+    if (raw) { const o = JSON.parse(raw); p = { ...p, ...o, stats: { ...p.stats, ...(o.stats || {}) }, wallet: { ...p.wallet, ...(o.wallet || {}) }, settings: { ...p.settings, ...(o.settings || {}) }, cosm: { ...p.cosm, ...(o.cosm || {}) }, season: { ...p.season, ...(o.season || {}) }, chest: { ...p.chest, ...(o.chest || {}) }, avatar: o.avatar || p.avatar }; }
   } catch {}
   return p;
 }

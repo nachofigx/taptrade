@@ -1,5 +1,7 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=15';
-import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=15';
+import { SLOT as SLOT0, LOCK as LOCK0, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=17';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=17';
+import { FRAMES, TRAILS, TUNES, KINDS, KIND_LABEL, itemKey, owns, equip, itemName, SEASON_REWARDS, SEASON_LEVELS, seasonInfo, seasonSync, addSeasonXP, seasonClaimable, seasonClaim, rollChest, GOLD, goldGap, goldTier, FLASH, flashGap, flashXP, flashResult, pickLine, buildClip, clipPriceAt, grant } from './extras.js?v=17';
+import { DEFAULT_IND, sma, ema, rsi, pushTick } from './indicators.js?v=17';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -24,8 +26,13 @@ let wins = 0, losses = 0, pnl = 0, lastTickAt = 0;
 let streak = 0, bestStreak = 0, lastFrameAt = performance.now();
 const parts = []; let banner = null, shakeMag = 0;
 let prof = loadProfile();
+(() => { const d = DEFAULT_IND, i = prof.settings.ind || {}; prof.settings.ind = { ...d, ...i, ma1: { ...d.ma1, ...i.ma1 }, ma2: { ...d.ma2, ...i.ma2 }, rsi: { ...d.rsi, ...i.rsi } }; })();
+let bars = [];             // price bars for the indicators: one close per prof.settings.ind.bar seconds
+const RSI_H = 104;         // height of the RSI panel
 let tension = 0, slow = 0, heartNext = 0, lossRun = 0, lastBig = null, lp = null, shareT = 0;
 const comboMap = new Map();
+const TURBO = { slot: 2, lock: 2 };    // turbo mode: 2 s columns, bets close 2 s before
+let SLOT = SLOT0, LOCK = LOCK0;
 const gifts = []; let nextGift = 0;   // special gift boxes: touch them with the price to earn XP
 const theme = () => THEMES.find((t) => t.id === prof.theme && levelInfo(prof.xp).level >= t.lvl) || THEMES[0];
 const HIST_T = 10, HIST_MAX = 300;   // history compression: log scale, 5 minutes visible
@@ -295,9 +302,10 @@ function renderAssetMark() {
   el.style.setProperty('--ac', co.c);
   el.innerHTML = co.svg + '<div><b>' + sym + '</b><small>' + co.name + ' · ' + asset.replace('-', ' / ') + '</small></div>';
 }
+const nowX = () => Math.round(W * (W < 820 ? 0.22 : 0.40));
 function placeAssetMark() {
   const el = $('asset'); if (!el) return;
-  const xn = Math.round(W * (W < 820 ? 0.22 : 0.28));
+  const xn = nowX();
   el.style.left = xn / 2 + 'px'; el.style.top = TOP + 52 + 'px'; el.style.display = xn < 170 ? 'none' : 'flex';
 }
 // ---------- UI ----------
@@ -497,7 +505,7 @@ function bindProfileExtras() {
 }
 $('lvl').onclick = openProfile; $('share').onclick = shareCard; $('music').onclick = () => { setMusic(!musicOn); };
 $('prof').addEventListener('pointerdown', (e) => { if (e.target === $('prof')) closeProfile(); });
-addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeProfile(); closeWallet(); } });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeProfile(); closeWallet(); $('indpop').classList.add('hide'); } });
 
 renderTabs(); renderStakes(); renderBal(); renderStats(); renderStreak(); renderMute(); renderMusic(); renderLevel();
 const dc = dailyCheck(prof); persist();
@@ -519,7 +527,7 @@ function connect() {
   clearTimeout(wsTimer);
   if (ws) { ws.onclose = null; ws.close(); }
   gifts.length = 0; nextGift = now() + 10;
-  histGain = 1;   hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
+  bars = []; histGain = 1;   hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
   $('price').textContent = '—'; $('price').className = ''; $('chg').textContent = '';
   $('msg').style.display = 'block'; $('msg').textContent = 'Conectando al precio en vivo…'; setLive(false, 'CONECTANDO');
   ws = new WebSocket('wss://ws-feed.exchange.coinbase.com');
@@ -544,7 +552,7 @@ function onTick(t, p) {
   const cur = { t, p };
   if (!last) { band = pickBand(p, vol.sigma); center = p; first = p; $('msg').style.display = 'none'; setLive(true, 'EN VIVO'); }
   const prev = last || cur;
-  hist.push(cur);
+  hist.push(cur); pushTick(bars, t, p, prof.settings.ind.bar);
   while (hist.length > 4000 || (hist.length && t - hist[0].t > 600)) hist.shift();
   vol.add(t, p); last = cur; lastTickAt = t;
   const el = $('price'), d = p > prev.p ? 'up' : p < prev.p ? 'down' : null;
@@ -619,7 +627,7 @@ setInterval(() => {
 // ---------- geometry ----------
 function layout() {
   const t = now();
-  const xNow = Math.round(W * (W < 820 ? 0.22 : 0.28));
+  const xNow = nowX();
   const pps = (RH * ASPECT) / SLOT;       // a SLOT-second column is exactly ASPECT x as wide as a row is tall
   return { t, xNow, pps, cw: RH * ASPECT };
 }
@@ -634,7 +642,7 @@ function recompute(L) {
   board = computeBoard({
     S: last.p, sigma: vol.sigma, now: L.t,
     slotFrom: Math.ceil((L.t + LOCK) / SLOT),
-    slotTo: Math.floor((L.t + STEPS * DT) / SLOT) - 1,
+    slotTo: Math.floor((L.t + STEPS * DT) / SLOT) - 1, slot: SLOT,
     rowFrom: cr - half, rowTo: cr + half, band,
   });
   boardAt = L.t;
@@ -652,6 +660,87 @@ function rr(x, y, w, h, r) {
 }
 const fmtMult = (m) => (m >= 10 ? m.toFixed(1) : m.toFixed(2)) + 'x';
 const fmtPrice = (v) => v.toFixed(band < 0.01 ? 3 : band < 1 ? 2 : 0);
+
+// ---------- technical indicators (basic): two moving averages and RSI ----------
+const IND_RGB = { ma1: '44,245,210', ma2: '255,94,242' };
+function drawIndicators(L, hx, hy, Wh, reach, indOn, rsiOn) {
+  const ind = prof.settings.ind; if (!indOn || !bars.length) return;
+  pushTick(bars, L.t, last.p, ind.bar);   // keep the forming bar current even when no trade printed this second
+  const closes = bars.map((b) => b.c), step = ind.bar, ageOf = (i) => Math.max(0, L.t - Math.min(bars[i].t0 + step, L.t)), dec = last.p > 1000 ? 2 : 3;
+  let ly = TOP + 128; ctx.font = '700 12.5px Rajdhani, system-ui, sans-serif'; ctx.textAlign = 'left';
+  for (const key of ['ma1', 'ma2']) {
+    const sp = ind[key]; if (!sp.on) continue;
+    const s = sp.type === 'ema' ? ema(closes, sp.n) : sma(closes, sp.n), rgb = IND_RGB[key];
+    ctx.beginPath(); let started = false, lastV = null;
+    for (let i = bars.length - 1; i >= 0; i--) {
+      if (s[i] == null) continue; if (lastV == null) lastV = s[i];
+      const age = ageOf(i); if (age > reach) break; const x = hx(age), y = hy(s[i], x);
+      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+    }
+    const g = ctx.createLinearGradient(L.xNow - Wh, 0, L.xNow, 0); g.addColorStop(0, `rgba(${rgb},0)`); g.addColorStop(0.45, `rgba(${rgb},0.6)`); g.addColorStop(1, `rgba(${rgb},1)`);
+    if (started) { ctx.strokeStyle = g; ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.shadowColor = `rgba(${rgb},0.6)`; ctx.shadowBlur = 6; ctx.stroke(); ctx.shadowBlur = 0; }
+    ctx.fillStyle = `rgb(${rgb})`; ctx.fillRect(14, ly - 4, 14, 3);
+    ctx.fillStyle = 'rgba(230,225,250,0.88)'; ctx.fillText(sp.type.toUpperCase() + ' ' + sp.n + (lastV != null ? '  ' + lastV.toFixed(dec) : '  …'), 34, ly); ly += 17;
+  }
+  if (!rsiOn) return;
+  const n = ind.rsi.n, rv = rsi(closes, n), pX0 = 14, pX1 = L.xNow - 8, pTop = H - 16 - RSI_H, pw = pX1 - pX0;
+  const yv = (v) => pTop + 24 + ((100 - v) / 100) * (RSI_H - 32);
+  rr(pX0, pTop, pw, RSI_H, 10); ctx.fillStyle = 'rgba(12,6,28,0.80)'; ctx.fill(); ctx.strokeStyle = 'rgba(184,107,255,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+  ctx.save(); rr(pX0, pTop, pw, RSI_H, 10); ctx.clip();
+  ctx.fillStyle = 'rgba(255,77,109,0.09)'; ctx.fillRect(pX0, yv(100), pw, yv(70) - yv(100)); ctx.fillStyle = 'rgba(61,255,138,0.09)'; ctx.fillRect(pX0, yv(30), pw, yv(0) - yv(30));
+  ctx.setLineDash([3, 5]); ctx.lineWidth = 1;
+  for (const [lv, c] of [[70, 'rgba(255,77,109,0.55)'], [50, 'rgba(255,255,255,0.12)'], [30, 'rgba(61,255,138,0.55)']]) { ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(pX0, yv(lv)); ctx.lineTo(pX1, yv(lv)); ctx.stroke(); }
+  ctx.setLineDash([]); ctx.font = '600 10.5px Rajdhani, system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(154,143,194,0.8)';
+  ctx.fillText('70', pX1 - 5, yv(70) - 4); ctx.fillText('30', pX1 - 5, yv(30) - 4);
+  let prevPt = null, lastR = null;
+  for (let i = bars.length - 1; i >= 0; i--) {
+    if (rv[i] == null) continue; if (lastR == null) lastR = rv[i];
+    const age = ageOf(i); if (age > reach) break; const x = Math.min(pX1 - 2, hx(age)), y = yv(rv[i]);
+    if (prevPt && prevPt.x - x >= 0.6) {
+      const v = prevPt.v; ctx.strokeStyle = v >= 70 ? '#ff4d6d' : v <= 30 ? '#3dff8a' : '#ffd24a';
+      ctx.globalAlpha = Math.max(0.12, Math.min(1, (x - pX0) / (pw * 0.5))); ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(prevPt.x, prevPt.y); ctx.lineTo(x, y); ctx.stroke(); prevPt = { x, y, v: rv[i] };
+    } else if (!prevPt) prevPt = { x, y, v: rv[i] };
+  }
+  ctx.globalAlpha = 1; ctx.restore();
+  ctx.textAlign = 'left'; ctx.font = '700 12.5px Rajdhani, system-ui, sans-serif'; ctx.fillStyle = 'rgba(230,225,250,0.9)';
+  if (lastR == null) { ctx.fillText('RSI ' + n + ' · calentando ' + Math.min(bars.length - 1, n) + '/' + n, pX0 + 10, pTop + 16); return; }
+  ctx.fillText('RSI ' + n, pX0 + 10, pTop + 16);
+  const col = lastR >= 70 ? '#ff4d6d' : lastR <= 30 ? '#3dff8a' : '#ffd24a';
+  ctx.textAlign = 'right'; ctx.font = '900 16px Orbitron, system-ui, sans-serif'; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.fillText(lastR.toFixed(1), pX1 - 10, pTop + 17); ctx.shadowBlur = 0;
+  if (lastR >= 70 || lastR <= 30) { ctx.font = '700 11px Rajdhani, system-ui, sans-serif'; ctx.fillText(lastR >= 70 ? 'SOBRECOMPRA' : 'SOBREVENTA', pX1 - 70, pTop + 16); }
+}
+function indActive() { return nowX() >= 260 && W >= 820 && prof.settings.ind.rsi.on; }
+function applyIndLayout() { const s = $('side'), on = indActive(); s.style.bottom = (on ? 16 + RSI_H + 14 : 16) + 'px'; s.classList.toggle('compact', on); }
+function rebuildBars() { bars = []; for (const h of hist) pushTick(bars, h.t, h.p, prof.settings.ind.bar); }
+function renderIndPop() {
+  const ind = prof.settings.ind, ma = (k, label) => `<div class="irow"><label><input type="checkbox" data-ind="${k}.on" ${ind[k].on ? 'checked' : ''}> <span class="sw" style="background:rgb(${IND_RGB[k]})"></span>${label}</label>
+    <select data-ind="${k}.type"><option value="ema" ${ind[k].type === 'ema' ? 'selected' : ''}>EMA</option><option value="sma" ${ind[k].type === 'sma' ? 'selected' : ''}>SMA</option></select>
+    <input type="number" min="2" max="100" value="${ind[k].n}" data-ind="${k}.n"></div>`;
+  $('indpop').innerHTML = `<h4>Indicadores</h4>${ma('ma1', 'Media móvil 1')}${ma('ma2', 'Media móvil 2')}
+    <div class="irow"><label><input type="checkbox" data-ind="rsi.on" ${ind.rsi.on ? 'checked' : ''}> <span class="sw" style="background:#ffd24a"></span>RSI</label><span class="hint">período</span><input type="number" min="2" max="50" value="${ind.rsi.n}" data-ind="rsi.n"></div>
+    <div class="irow"><label>Barras de</label><select data-ind="bar">${[1, 2, 5].map((s) => `<option value="${s}" ${ind.bar === s ? 'selected' : ''}>${s} s</option>`).join('')}</select></div>
+    <div class="irow"><label>Vista del historial</label><select data-ind="view"><option value="arcade" ${ind.view === 'arcade' ? 'selected' : ''}>Arcade</option><option value="real" ${ind.view === 'real' ? 'selected' : ''}>Real</option></select></div>
+    <div class="irow"><label>Ventana (vista real)</label><select data-ind="span">${[60, 120, 300].map((s) => `<option value="${s}" ${ind.span === s ? 'selected' : ''}>${s / 60} min</option>`).join('')}</select></div>
+    <div class="hint2">Se calculan con el precio en vivo, una barra por intervalo. El RSI necesita período + 1 barras para empezar. «Real» usa tiempo lineal y la misma escala de precio que la cuadrícula.</div>`;
+  $('indpop').querySelectorAll('[data-ind]').forEach((el) => {
+    el.onchange = () => {
+      const path = el.dataset.ind.split('.'); let o = prof.settings.ind; for (let i = 0; i < path.length - 1; i++) o = o[path[i]];
+      const k = path[path.length - 1]; let v;
+      if (el.type === 'checkbox') v = el.checked;
+      else if (el.type === 'number') v = Math.max(+el.min, Math.min(+el.max, Math.round(+el.value) || +el.min));
+      else if (k === 'bar' || k === 'span') v = +el.value;
+      else v = el.value;
+      o[k] = v; if (el.type === 'number') el.value = v;
+      saveProfile(prof); if (k === 'bar') rebuildBars(); applyIndLayout();
+    };
+  });
+}
+function toggleIndPop() {
+  const pop = $('indpop'); if (!pop.classList.contains('hide')) return pop.classList.add('hide');
+  renderIndPop(); const r = $('indbtn').getBoundingClientRect(); pop.style.top = r.bottom + 8 + 'px'; pop.style.right = Math.max(8, innerWidth - r.right - 4) + 'px'; pop.classList.remove('hide');
+}
+$('indbtn').onclick = (e) => { e.stopPropagation(); toggleIndPop(); };
+addEventListener('pointerdown', (e) => { const p = $('indpop'); if (!p.classList.contains('hide') && !p.contains(e.target) && e.target !== $('indbtn') && !$('indbtn').contains(e.target)) p.classList.add('hide'); });
 
 function draw() {
   const L = layout(), th = theme();
@@ -766,26 +855,40 @@ function draw() {
   }
   cv.style.cursor = canBet ? 'pointer' : 'default';
 
-  // ---- history zone (left of "now"): time is compressed (log scale) and height is exaggerated toward the past, then it fades out
-  const Wh = Math.max(40, L.xNow - 24), lnMax = Math.log(1 + HIST_MAX / HIST_T);
-  const hx = (age) => L.xNow - (Wh * Math.log(1 + age / HIST_T)) / lnMax;
-  let mn = Infinity, mx = -Infinity;
-  for (let i = hist.length - 1; i >= 0; i--) { const h = hist[i]; if (L.t - h.t > HIST_MAX) break; if (h.p < mn) mn = h.p; if (h.p > mx) mx = h.p; }
-  if (mx > mn) {
-    const rangePx = ((mx - mn) / band) * RH, playH = H - TOP - 60;
-    const target = Math.min(20, Math.max(1, (0.5 * playH) / Math.max(rangePx, RH * 0.6)));
-    histGain += (target - histGain) * 0.04;
+  // ---- history zone (left of "now"). 'arcade': log-compressed time + exaggerated height. 'real': linear time + true price scale.
+  const ind = prof.settings.ind, real = ind.view === 'real', SPAN = ind.span, indOn = L.xNow >= 260 && W >= 820, rsiOn = indOn && ind.rsi.on;
+  const botY = rsiOn ? H - 16 - RSI_H - 12 : H - 12, Wh = Math.max(40, L.xNow - 24), lnMax = Math.log(1 + HIST_MAX / HIST_T), reach = real ? SPAN : HIST_MAX;
+  const hx = real ? (age) => L.xNow - (Wh * age) / SPAN : (age) => L.xNow - (Wh * Math.log(1 + age / HIST_T)) / lnMax;
+  const hy = (p, x) => {
+    if (real) return Math.min(botY, Math.max(TOP + 26, yOf(p)));
+    const prog = (L.xNow - x) / Wh, gain = 1 + (histGain - 1) * Math.pow(prog, 1.15);
+    return Math.min(botY, Math.max(TOP + 26, yLast + (yOf(p) - yLast) * gain));
+  };
+  if (!real) {
+    let mn = Infinity, mx = -Infinity;
+    for (let i = hist.length - 1; i >= 0; i--) { const h = hist[i]; if (L.t - h.t > HIST_MAX) break; if (h.p < mn) mn = h.p; if (h.p > mx) mx = h.p; }
+    if (mx > mn) {
+      const rangePx = ((mx - mn) / band) * RH, playH = botY - TOP - 60;
+      const target = Math.min(20, Math.max(1, (0.5 * playH) / Math.max(rangePx, RH * 0.6)));
+      histGain += (target - histGain) * 0.04;
+    }
   }
   const zg = ctx.createLinearGradient(0, 0, L.xNow, 0);
   zg.addColorStop(0, `rgba(${th.glow},0)`); zg.addColorStop(1, `rgba(${th.glow},0.035)`);
   ctx.fillStyle = zg; ctx.fillRect(0, TOP + 4, L.xNow, H - TOP - 4);
-  if (L.xNow > 160) { // time marks and a label so the squeezed scale is honest
+  if (L.xNow > 160) { // time marks and a label so the scale is honest
+    const marks = real ? (SPAN <= 60 ? [15, 30, 45, 60] : SPAN <= 120 ? [30, 60, 90, 120] : [60, 120, 180, 240, 300]) : [30, 60, 120, 240];
     ctx.textAlign = 'center'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
-    for (const [age, lab] of [[30, '−30s'], [60, '−1m'], [120, '−2m'], [240, '−4m']]) {
-      const x = hx(age); ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, TOP + 22); ctx.lineTo(Math.round(x) + 0.5, H); ctx.stroke();
-      ctx.fillStyle = 'rgba(134,147,176,0.6)'; ctx.fillText(lab, x, TOP + 16);
+    for (const age of marks) {
+      const x = hx(age); ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, TOP + 22); ctx.lineTo(Math.round(x) + 0.5, botY); ctx.stroke();
+      ctx.fillStyle = 'rgba(134,147,176,0.6)'; ctx.fillText(age < 60 ? '−' + age + 's' : '−' + age / 60 + 'm', x, TOP + 16);
     }
-    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(134,147,176,0.55)'; ctx.fillText('HISTORIAL · zoom ×' + histGain.toFixed(1), 14, TOP + 36);
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(134,147,176,0.55)';
+    ctx.fillText(real ? 'HISTORIAL · escala real · ' + SPAN / 60 + ' min' : 'HISTORIAL · zoom ×' + histGain.toFixed(1), 14, TOP + 36);
+    if (real) { // true price scale, shared with the grid
+      ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(134,147,176,0.55)';
+      for (let r = rowBot; r <= rowTop + 1; r += 2) { const y = yOf(r * band); if (y > TOP + 176 && y < botY - 6) ctx.fillText(fmtPrice(r * band), 14, y); }
+    }
   }
   if (hist.length > 1) {
     const lg = ctx.createLinearGradient(L.xNow - Wh, 0, L.xNow, 0);
@@ -793,16 +896,15 @@ function draw() {
     ctx.beginPath(); ctx.moveTo(L.xNow, yLast); let px = L.xNow;
     for (let i = hist.length - 1; i >= 0; i--) {
       const h = hist[i], age = L.t - h.t;
-      if (age > HIST_MAX) break;
+      if (age > reach) break;
       const x = hx(age);
       if (px - x < 0.8 && i > 0) continue;           // skip sub-pixel points (keeps long histories cheap)
-      const prog = (L.xNow - x) / Wh, gain = 1 + (histGain - 1) * Math.pow(prog, 1.15);
-      const y = Math.min(H - 12, Math.max(TOP + 26, yLast + (yOf(h.p) - yLast) * gain));
-      ctx.lineTo(x, y); px = x;
+      ctx.lineTo(x, hy(h.p, x)); px = x;
     }
     ctx.strokeStyle = lg; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.shadowColor = `rgba(${th.glow},0.55)`; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
   }
+  drawIndicators(L, hx, hy, Wh, reach, indOn, rsiOn);
 
   // "now" marker + dashed price guide
   ctx.strokeStyle = `rgba(${th.glow},0.28)`; ctx.setLineDash([3, 6]); ctx.lineWidth = 1;
@@ -883,9 +985,9 @@ function resize() {
   TOP = document.querySelector('.bar').offsetHeight;
   RH = Math.max(40, Math.ceil(W / 32));   // keeps the 120 s pricing horizon on screen at any width
   cv.width = W * dpr; cv.height = H * dpr;
-  placeAssetMark();
+  placeAssetMark(); applyIndLayout();
 }
 addEventListener('resize', resize); addEventListener('load', resize); resize();
 ['700 16px Rajdhani', '600 12px Rajdhani', '400 20px Bungee', '900 16px Orbitron'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
 connect(); requestAnimationFrame(frame);
-window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift } };
+window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, bars: bars.length, nowX: nowX(), ind: prof.settings.ind, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift, setInd: (patch) => { Object.assign(prof.settings.ind, patch); rebuildBars(); applyIndLayout(); } } };

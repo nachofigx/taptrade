@@ -59,14 +59,14 @@ export class Vol {
 
 // Row r covers prices [r*band, (r+1)*band). Slot k covers epoch seconds [k*SLOT, (k+1)*SLOT).
 // Returns Map "k:r" -> { m: multiplier, p: win probability } for offered cells.
-export function computeBoard({ S, sigma, now, slotFrom, slotTo, rowFrom, rowTo, band, dt = DT }) {
+export function computeBoard({ S, sigma, now, slotFrom, slotTo, rowFrom, rowTo, band, dt = DT, slot = SLOT }) {
   const w = walks();
   const out = new Map();
   const counts = new Int32Array(rowTo - rowFrom + 1);
   // Broadie-Glasserman continuity correction for discrete monitoring.
   const bgc = 0.5826 * Math.sqrt(dt);
   for (let k = slotFrom; k <= slotTo; k++) {
-    const start = k * SLOT, end = start + SLOT;
+    const start = k * slot, end = start + slot;
     let a = Math.ceil((start - now) / dt), b = Math.floor((end - now) / dt);
     if (a < 0) a = 0;
     if (b > STEPS) b = STEPS;
