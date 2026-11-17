@@ -1,5 +1,5 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=9';
-import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck } from './progress.js?v=9';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=10';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck } from './progress.js?v=10';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -139,10 +139,10 @@ function drawFx() {
     const b = banner, fade = b.t > 1.6 ? 1 - (b.t - 1.6) / 0.6 : 1, pop = 1 + 0.45 * Math.max(0, 1 - b.t / 0.28) ** 2;
     const fs = (W < 600 ? 0.62 : 1) * (b.big ? 54 : 34), cx = W / 2, cy = TOP + (H - TOP) * 0.24 - b.t * 10;
     ctx.save(); ctx.globalAlpha = Math.max(0, fade); ctx.translate(cx, cy); ctx.scale(pop, pop); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = `900 ${fs}px ui-sans-serif, system-ui, sans-serif`; ctx.lineJoin = 'round'; ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(5,8,16,0.85)'; ctx.strokeText(b.text, 0, 0);
+    ctx.font = `400 ${fs * 0.86}px Bungee, system-ui, sans-serif`; ctx.lineJoin = 'round'; ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(5,8,16,0.85)'; ctx.strokeText(b.text, 0, 0);
     const g = ctx.createLinearGradient(0, -fs / 2, 0, fs / 2); g.addColorStop(0, `hsl(${b.hue},95%,80%)`); g.addColorStop(1, `hsl(${b.hue + 40},95%,58%)`);
     ctx.shadowColor = `hsl(${b.hue},95%,60%)`; ctx.shadowBlur = 26; ctx.fillStyle = g; ctx.fillText(b.text, 0, 0); ctx.shadowBlur = 0;
-    if (b.sub) { ctx.font = `700 ${fs * 0.42}px ui-sans-serif, system-ui, sans-serif`; ctx.fillStyle = '#eef2fb'; ctx.fillText(b.sub, 0, fs * 0.82); }
+    if (b.sub) { ctx.font = `700 ${fs * 0.5}px Rajdhani, system-ui, sans-serif`; ctx.fillStyle = '#eef2fb'; ctx.fillText(b.sub, 0, fs * 0.82); }
     ctx.restore();
   }
 }
@@ -200,21 +200,25 @@ function toast(text, kind) {
   const t = $('toast'); t.textContent = text; t.style.color = kind === 'l' ? 'var(--loss)' : 'var(--text)';
   t.classList.add('show'); clearTimeout(toastT); toastT = setTimeout(() => t.classList.remove('show'), 2200);
 }
+const form = [];   // last results, newest last: 'w' | 'l'
 function renderStats() {
   const p = $('pnl'); p.textContent = (pnl >= 0 ? '+' : '−') + fmt$(Math.abs(pnl)); p.className = pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : '';
-  $('wl').textContent = wins + ' / ' + (wins + losses);
+  const tot = wins + losses; $('wl').textContent = wins + ' / ' + tot;
+  $('wrbar').style.width = (tot ? (100 * wins) / tot : 0) + '%';
+  $('strk').textContent = streak >= 2 ? 'RACHA ×' + streak : '';
+  $('form').innerHTML = Array.from({ length: 10 }, (_, i) => { const r = form[form.length - 10 + i]; return '<i class="' + (r || '') + '"></i>'; }).join('');
 }
 function logResult(bet) {
-  const d = document.createElement('div');
-  d.className = bet.status === 'won' ? 'w' : 'l';
-  const profit = bet.status === 'won' ? bet.stake * (bet.mult - 1) : -bet.stake;
-  d.innerHTML = `<span>${bet.status === 'won' ? '✓ Acierto' : '✗ Fallo'} · ${bet.mult.toFixed(2)}x</span><b>${profit >= 0 ? '+' : '−'}${fmt$(Math.abs(profit))}</b>`;
+  form.push(bet.status === 'won' ? 'w' : 'l'); if (form.length > 30) form.shift(); renderStats();
+  const won = bet.status === 'won', profit = won ? bet.stake * (bet.mult - 1) : -bet.stake, big = won && bet.mult >= 8;
+  const d = document.createElement('div'); d.className = won ? (big ? 'w big' : 'w') : 'l';
+  d.innerHTML = `<span class="ico">${won ? '✓' : '✗'}</span><span class="m">${bet.mult >= 10 ? bet.mult.toFixed(1) : bet.mult.toFixed(2)}x</span><span class="t">${big ? 'Jackpot' : won ? 'Acierto' : 'Fallo'}</span><b class="p">${profit >= 0 ? '+' : '−'}${fmt$(Math.abs(profit))}</b>`;
   $('log').prepend(d);
-  while ($('log').children.length > 5) $('log').lastChild.remove();
+  while ($('log').children.length > 6) $('log').lastChild.remove();
 }
 // ---------- progression: XP, levels, achievements, daily mission, share ----------
 const persist = () => saveProfile(prof);
-function renderLevel() { const li = levelInfo(prof.xp); $('lvlnum').textContent = 'Nv ' + li.level; $('lvlbar').style.width = (100 * li.cur / li.need) + '%'; }
+function renderLevel() { const li = levelInfo(prof.xp); $('lvlnum').textContent = 'NV ' + li.level; $('lvlbar').style.width = (100 * li.cur / li.need) + '%'; }
 function addXP(n) {
   const before = levelInfo(prof.xp).level; prof.xp += n; const after = levelInfo(prof.xp).level; persist(); renderLevel();
   if (after > before) {
@@ -252,11 +256,11 @@ async function shareCard() {
   const bg = g.createLinearGradient(0, 0, 1200, 630); bg.addColorStop(0, '#0a0f1c'); bg.addColorStop(1, '#070a12'); g.fillStyle = bg; g.fillRect(0, 0, 1200, 630);
   const glow = g.createRadialGradient(600, 300, 0, 600, 300, 520); glow.addColorStop(0, `rgba(${th.glow},0.28)`); glow.addColorStop(1, `rgba(${th.glow},0)`); g.fillStyle = glow; g.fillRect(0, 0, 1200, 630);
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = '800 30px ui-sans-serif, system-ui, sans-serif'; g.fillStyle = th.dot; g.fillText('T A P L I N E', 600, 70);
-  g.font = '900 170px ui-sans-serif, system-ui, sans-serif'; g.shadowColor = `rgba(${th.glow},0.9)`; g.shadowBlur = 40; g.fillStyle = '#ffffff'; g.fillText('+' + fmt$(d.profit), 600, 280); g.shadowBlur = 0;
-  g.font = '800 64px ui-sans-serif, system-ui, sans-serif'; g.fillStyle = '#4ade80'; g.fillText(d.mult.toFixed(1) + 'x  ·  ' + d.asset, 600, 410);
-  g.font = '600 28px ui-sans-serif, system-ui, sans-serif'; g.fillStyle = '#8693b0'; g.fillText('Nivel ' + levelInfo(prof.xp).level + '  ·  racha máx. ' + prof.stats.bestStreak, 600, 480);
-  g.font = '500 24px ui-sans-serif, system-ui, sans-serif'; g.fillText('Modo práctica · sin dinero real · ' + location.host + location.pathname, 600, 565);
+  g.font = '400 38px Bungee, system-ui, sans-serif'; g.fillStyle = th.dot; g.fillText('T A P L I N E', 600, 70);
+  g.font = '900 150px Orbitron, system-ui, sans-serif'; g.shadowColor = `rgba(${th.glow},0.9)`; g.shadowBlur = 40; g.fillStyle = '#ffffff'; g.fillText('+' + fmt$(d.profit), 600, 280); g.shadowBlur = 0;
+  g.font = '700 74px Rajdhani, system-ui, sans-serif'; g.fillStyle = '#3dff8a'; g.fillText(d.mult.toFixed(1) + 'x  ·  ' + d.asset, 600, 410);
+  g.font = '600 32px Rajdhani, system-ui, sans-serif'; g.fillStyle = '#8693b0'; g.fillText('Nivel ' + levelInfo(prof.xp).level + '  ·  racha máx. ' + prof.stats.bestStreak, 600, 480);
+  g.font = '500 26px Rajdhani, system-ui, sans-serif'; g.fillText('Modo práctica · sin dinero real · ' + location.host + location.pathname, 600, 565);
   const blob = await new Promise((r) => c.toBlob(r, 'image/png')), file = new File([blob], 'tapline-win.png', { type: 'image/png' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: 'Tapline', text: '+' + fmt$(d.profit) + ' (' + d.mult.toFixed(1) + 'x) en Tapline' }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
@@ -267,16 +271,16 @@ function renderProfile() {
   const li = levelInfo(prof.xp), st = prof.stats, mi = prof.mission, def = mi && MISSIONS.find((x) => x.id === mi.id);
   const pct = st.bets ? Math.round((100 * st.wins) / Math.max(1, st.wins + st.losses)) : 0;
   $('profbody').innerHTML = `
-    <div class="row"><div><h2>Nivel ${li.level}</h2><div style="color:var(--dim);font-size:12.5px">${li.cur} / ${li.need} XP · racha diaria de ${prof.dayStreak} día(s)</div></div><button class="btn" id="profclose">Cerrar</button></div>
+    <div class="row"><div><h2>NIVEL ${li.level}</h2><div class="sub">${li.cur} / ${li.need} XP · racha diaria de ${prof.dayStreak} día(s)</div></div><button class="btn" id="profclose">Cerrar</button></div>
     <div class="xpbar"><u style="width:${(100 * li.cur / li.need).toFixed(1)}%"></u></div>
     <h3>Misión de hoy</h3>
-    <div class="tile ${mi && mi.done ? 'got' : ''}" style="opacity:1"><b>${def ? def.text : '—'}</b>${mi ? (mi.done ? 'Cumplida · +' + def.xp + ' XP' : (Number.isInteger(mi.prog) ? Math.min(mi.prog, def.target) : Math.min(mi.prog, def.target).toFixed(2)) + ' / ' + def.target + ' · recompensa ' + def.xp + ' XP') : ''}</div>
+    <div class="tile ${mi && mi.done ? 'got' : ''}" style="opacity:1;border-color:rgba(44,245,210,.5)"><b>${def ? def.text : '—'}</b>${mi ? (mi.done ? 'Cumplida · +' + def.xp + ' XP' : (Number.isInteger(mi.prog) ? Math.min(mi.prog, def.target) : Math.min(mi.prog, def.target).toFixed(2)) + ' / ' + def.target + ' · recompensa ' + def.xp + ' XP') : ''}</div>
     <h3>Estadísticas</h3>
-    <div class="stat4"><div class="tile"><b>${st.bets}</b>apuestas</div><div class="tile"><b>${pct}%</b>aciertos</div><div class="tile"><b>×${st.bestStreak}</b>mejor racha</div><div class="tile"><b>${fmt$(st.biggest)}</b>mayor premio</div></div>
+    <div class="stat4"><div class="tile"><b class="num">${st.bets}</b><span>apuestas</span></div><div class="tile"><b class="num">${pct}%</b><span>aciertos</span></div><div class="tile"><b class="num">×${st.bestStreak}</b><span>mejor racha</span></div><div class="tile"><b class="num">${fmt$(st.biggest)}</b><span>mayor premio</span></div></div>
     <h3>Estilo de la línea de precio</h3>
     <div class="themes">${THEMES.map((t) => `<button data-th="${t.id}" class="${t.id === theme().id ? 'on' : ''}" ${li.level < t.lvl ? 'disabled' : ''} style="color:${t.dot}">${t.name}${li.level < t.lvl ? ' · Nv ' + t.lvl : ''}</button>`).join('')}</div>
     <h3>Logros · ${Object.keys(prof.ach).length} / ${ACHIEVEMENTS.length}</h3>
-    <div class="grid2">${ACHIEVEMENTS.map((a) => `<div class="tile ${prof.ach[a.id] ? 'got' : ''}"><b>${prof.ach[a.id] ? '★ ' : ''}${a.name}</b>${a.desc}</div>`).join('')}</div>
+    <div class="grid2">${ACHIEVEMENTS.map((a) => `<div class="tile ach ${prof.ach[a.id] ? 'got' : ''}"><span class="medal">${prof.ach[a.id] ? '★' : '?'}</span><div><b>${a.name}</b>${a.desc}</div></div>`).join('')}</div>
     <h3>Compartir</h3>
     <button class="btn pri" id="profshare">Compartir mi última victoria grande</button>`;
   $('profclose').onclick = closeProfile; $('profshare').onclick = shareCard;
@@ -422,7 +426,10 @@ function recompute(L) {
 }
 
 // ---------- drawing ----------
-const hue = (m) => 172 + Math.min(1, Math.log(m) / Math.log(30)) * 128;
+const hue = (m) => { // low = green/cyan, mid = blue/violet, high = pink, jackpot = orange/gold
+  const t = Math.min(1, Math.log(Math.max(m, 1)) / Math.log(40));
+  return t < 0.78 ? 150 + (t / 0.78) * 180 : 330 + ((t - 0.78) / 0.22) * 72;
+};
 function rr(x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
@@ -466,16 +473,16 @@ function draw() {
   // cells
   const betKeys = new Set(bets.map((b) => b.k + ':' + b.r));
   ctx.textAlign = 'center';
-  ctx.font = '600 ' + Math.max(10.5, Math.min(13, cw / 5.2)) + 'px ui-sans-serif, system-ui, sans-serif';
+  ctx.font = '700 ' + Math.max(12.5, Math.min(17, cw / 4)) + 'px Rajdhani, system-ui, sans-serif';
   let canBet = false;
   for (let k = k0; k <= k1; k++) {
     const x0 = xOf(L, k * SLOT), x1 = x0 + cw;
     if (x1 < 0 || x0 > W || k * SLOT < L.t + LOCK) continue;
     ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.beginPath(); ctx.moveTo(Math.round(x0) + 0.5, TOP + 4); ctx.lineTo(Math.round(x0) + 0.5, H); ctx.stroke();
     // column header: seconds until it starts
-    ctx.fillStyle = 'rgba(134,147,176,0.75)'; ctx.font = '500 10.5px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(134,147,176,0.75)'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
     ctx.fillText('+' + Math.max(0, Math.round(k * SLOT - L.t)) + 's', x0 + cw / 2, TOP + 16);
-    ctx.font = '600 ' + Math.max(10.5, Math.min(13, cw / 5.2)) + 'px ui-sans-serif, system-ui, sans-serif';
+    ctx.font = '700 ' + Math.max(12.5, Math.min(17, cw / 4)) + 'px Rajdhani, system-ui, sans-serif';
     for (let r = rowBot; r <= rowTop; r++) {
       const key = k + ':' + r, c = board.get(key);
       if (!c || betKeys.has(key)) continue;
@@ -490,37 +497,38 @@ function draw() {
       if (isHover) { canBet = true; ctx.shadowColor = `hsla(${hh},90%,60%,0.7)`; ctx.shadowBlur = 16; }
       rr(x0 + g, y + g, cw - 2 * g, RH - 2 * g, rad);
       const fg = ctx.createLinearGradient(0, y, 0, y + RH);
-      fg.addColorStop(0, `hsla(${hh},70%,58%,${isHover ? 0.42 : 0.14})`); fg.addColorStop(1, `hsla(${hh},70%,45%,${isHover ? 0.30 : 0.07})`);
+      fg.addColorStop(0, `hsla(${hh},85%,60%,${isHover ? 0.48 : 0.19})`); fg.addColorStop(1, `hsla(${hh},85%,46%,${isHover ? 0.34 : 0.08})`);
       ctx.fillStyle = fg; ctx.fill(); ctx.shadowBlur = 0;
-      ctx.strokeStyle = `hsla(${hh},80%,66%,${isHover ? 0.95 : 0.17})`; ctx.lineWidth = 1; ctx.stroke();
-      ctx.fillStyle = `hsla(${hh},90%,${isHover ? 92 : 76}%,${isHover ? 1 : 0.88})`;
-      ctx.fillText(fmtMult(c.m), x0 + cw / 2, y + RH / 2 + 0.5);
+      ctx.strokeStyle = `hsla(${hh},85%,68%,${isHover ? 1 : 0.30})`; ctx.lineWidth = isHover ? 1.5 : 1; ctx.stroke();
+      ctx.strokeStyle = `rgba(255,255,255,${isHover ? 0.4 : 0.11})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0 + g + rad, y + g + 1.6); ctx.lineTo(x0 + cw - g - rad, y + g + 1.6); ctx.stroke(); // bevel highlight
+      ctx.fillStyle = `hsla(${hh},95%,${isHover ? 94 : 80}%,${isHover ? 1 : 0.95})`; ctx.shadowColor = `hsla(${hh},95%,60%,0.8)`; ctx.shadowBlur = isHover ? 10 : 4;
+      ctx.fillText(fmtMult(c.m), x0 + cw / 2, y + RH / 2 + 0.5); ctx.shadowBlur = 0;
     }
   }
 
   // bets
   for (const b of bets) {
     const x0 = xOf(L, b.start), y = yOf(b.hi), age = b.settledAt ? L.t - b.settledAt : 0;
-    const col = b.status === 'won' ? '#4ade80' : b.status === 'lost' ? '#fb7185' : '#ffffff';
+    const col = b.status === 'won' ? '#3dff8a' : b.status === 'lost' ? '#ff4d6d' : '#ffd24a';
     const alpha = b.status === 'open' ? 1 : Math.max(0, 1 - age / 4);
     const popK = b.placedAt ? Math.max(0, 1 - (L.t - b.placedAt) / 0.32) : 0, sc = 1 + 0.3 * popK * popK + (b.int ? 0.07 * b.int * (0.5 + 0.5 * Math.sin(L.t * (7 + 18 * b.int))) : 0);
     ctx.save(); ctx.translate(x0 + cw / 2, y + RH / 2); ctx.scale(sc, sc); ctx.translate(-(x0 + cw / 2), -(y + RH / 2));
     ctx.globalAlpha = alpha;
     ctx.shadowColor = b.int > 0.55 ? '#ff5470' : col; ctx.shadowBlur = (b.status === 'open' ? 12 : 18) + 30 * (b.int || 0);
     rr(x0 + g + 0.5, y + g + 0.5, cw - 2 * g - 1, RH - 2 * g - 1, rad);
-    ctx.fillStyle = b.status === 'open' ? 'rgba(255,255,255,0.15)' : b.status === 'won' ? 'rgba(74,222,128,0.30)' : 'rgba(251,113,133,0.22)';
+    ctx.fillStyle = b.status === 'open' ? 'rgba(255,210,74,0.20)' : b.status === 'won' ? 'rgba(61,255,138,0.30)' : 'rgba(255,77,109,0.22)';
     ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = col; ctx.font = '700 ' + Math.max(10.5, Math.min(13, cw / 5.2)) + 'px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillStyle = col; ctx.font = '700 ' + Math.max(12.5, Math.min(17, cw / 4)) + 'px Rajdhani, system-ui, sans-serif';
     ctx.fillText(b.status === 'open' ? '$' + b.stake + '·' + fmtMult(b.mult) : b.status === 'won' ? '✓' : '✗', x0 + cw / 2, y + RH / 2 + 0.5);
     if (b.status === 'open' && L.t >= b.start && L.t <= b.end) { // countdown bar: how much of the 5 s window is left
-      const f = Math.max(0, (b.end - L.t) / SLOT); ctx.fillStyle = f < 0.4 ? '#fb7185' : '#4ade80'; ctx.fillRect(x0 + g + 5, y + RH - g - 7, (cw - 2 * g - 10) * f, 3);
+      const f = Math.max(0, (b.end - L.t) / SLOT); ctx.fillStyle = f < 0.4 ? '#ff4d6d' : '#3dff8a'; ctx.fillRect(x0 + g + 5, y + RH - g - 7, (cw - 2 * g - 10) * f, 3);
     }
     ctx.restore();
     ctx.globalAlpha = alpha;
     if (b.status === 'won' && age < 1.4) { // expanding ring + floating payout
-      ctx.globalAlpha = 1 - age / 1.4; ctx.lineWidth = 2; ctx.strokeStyle = '#4ade80';
+      ctx.globalAlpha = 1 - age / 1.4; ctx.lineWidth = 2; ctx.strokeStyle = '#3dff8a';
       ctx.beginPath(); ctx.arc(x0 + cw / 2, y + RH / 2, 10 + age * 55, 0, 7); ctx.stroke();
-      ctx.font = '800 16px ui-sans-serif, system-ui, sans-serif'; ctx.fillStyle = '#4ade80';
+      ctx.font = '800 16px Rajdhani, system-ui, sans-serif'; ctx.fillStyle = '#3dff8a';
       ctx.fillText('+' + fmt$(b.stake * (b.mult - 1)), x0 + cw / 2, y - 8 - age * 34);
     }
     ctx.globalAlpha = 1; ctx.lineWidth = 1;
@@ -532,7 +540,7 @@ function draw() {
     if (c && !c.off) {
       const x = xOf(L, hover.k * SLOT) + cw / 2, y = yOf((hover.r + 1) * band) - 6;
       const txt = `$${stake} → ${fmt$(stake * c.m)}`;
-      ctx.font = '700 12px ui-sans-serif, system-ui, sans-serif';
+      ctx.font = '700 12px Rajdhani, system-ui, sans-serif';
       const tw = ctx.measureText(txt).width + 18;
       rr(x - tw / 2, y - 24, tw, 22, 11); ctx.fillStyle = 'rgba(8,12,22,0.92)'; ctx.fill();
       ctx.strokeStyle = 'rgba(94,242,208,0.6)'; ctx.lineWidth = 1; ctx.stroke();
@@ -555,7 +563,7 @@ function draw() {
   zg.addColorStop(0, `rgba(${th.glow},0)`); zg.addColorStop(1, `rgba(${th.glow},0.035)`);
   ctx.fillStyle = zg; ctx.fillRect(0, TOP + 4, L.xNow, H - TOP - 4);
   if (L.xNow > 160) { // time marks and a label so the squeezed scale is honest
-    ctx.textAlign = 'center'; ctx.font = '500 10.5px ui-sans-serif, system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
     for (const [age, lab] of [[30, '−30s'], [60, '−1m'], [120, '−2m'], [240, '−4m']]) {
       const x = hx(age); ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, TOP + 22); ctx.lineTo(Math.round(x) + 0.5, H); ctx.stroke();
       ctx.fillStyle = 'rgba(134,147,176,0.6)'; ctx.fillText(lab, x, TOP + 16);
@@ -587,7 +595,7 @@ function draw() {
   ctx.fillStyle = th.dot; ctx.shadowColor = th.dot; ctx.shadowBlur = 14; ctx.beginPath(); ctx.arc(L.xNow, yLast, 5, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
 
   // price axis (right) with a live tag
-  ctx.textAlign = 'right'; ctx.font = '500 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.textAlign = 'right'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
   for (let r = rowBot; r <= rowTop + 1; r++) {
     const y = yOf(r * band);
     if (y < TOP + 32 || Math.abs(y - yLast) < 16 || r % 2) continue;
@@ -595,7 +603,7 @@ function draw() {
   }
   const tag = fmtPrice(last.p), tagW = ctx.measureText(tag).width + 18;
   rr(W - tagW - 4, yLast - 11, tagW, 22, 6); ctx.fillStyle = th.dot; ctx.fill();
-  ctx.fillStyle = '#04120e'; ctx.font = '700 11.5px ui-sans-serif, system-ui, sans-serif'; ctx.fillText(tag, W - 13, yLast + 0.5);
+  ctx.fillStyle = '#04120e'; ctx.font = '700 11.5px Rajdhani, system-ui, sans-serif'; ctx.fillText(tag, W - 13, yLast + 0.5);
   if (tension > 0.12) { // pulsing vignette that tightens as the price closes in
     const a = Math.min(0.5, tension * 0.42) * (0.65 + 0.35 * Math.sin(L.t * (6 + 14 * tension))), vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(${tension > 0.6 ? '255,60,90' : th.glow},${a})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
@@ -652,5 +660,6 @@ function resize() {
   cv.width = W * dpr; cv.height = H * dpr;
 }
 addEventListener('resize', resize); addEventListener('load', resize); resize();
+['700 16px Rajdhani', '600 12px Rajdhani', '400 20px Bungee', '900 16px Orbitron'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
 connect(); requestAnimationFrame(frame);
 window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile } };

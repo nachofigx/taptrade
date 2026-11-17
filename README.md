@@ -4,6 +4,7 @@ Tap-trading game: tap a grid cell; if the live price touches that price band dur
 
 - `engine.js`  pricing (Monte Carlo touch probabilities, 8% house edge) and bet resolution
 - `main.js`    canvas UI (4:3 cells), price feed, bets, game feel (particles, synthesized sound, streaks)
+- `fonts/`      self-hosted Bungee, Orbitron, Rajdhani (SIL OFL)
 - `progress.js`  XP, levels, achievements, daily mission and streak, cosmetic themes (localStorage)
 - `engine.test.js`  `node --test engine.test.js` (includes a ~45 s simulation check that expected return ≈ 92%)
 
