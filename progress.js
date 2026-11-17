@@ -99,8 +99,8 @@ export function pixelAvatarSVG(seed, size = 64) {
     for (let y = 0; y < 5; y++) { const r = [rnd() < 0.58, rnd() < 0.58, rnd() < 0.58]; r[3] = r[1]; r[4] = r[0]; grid.push(r); n += r.filter(Boolean).length; }
   } while (n < 9 || n > 17);
   let cells = '';
-  grid.forEach((row, y) => row.forEach((on, x) => { if (on) cells += `<rect x="${10 + x * 16}" y="${10 + y * 16}" width="14" height="14" rx="3" fill="hsl(${(hue + (y % 2 ? 45 : 0)) % 360},90%,${y < 2 ? 66 : 58}%)"/>`; }));
-  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}"><rect width="100" height="100" rx="26" fill="hsl(${hue},55%,13%)"/>${cells}</svg>`;
+  grid.forEach((row, y) => row.forEach((on, x) => { if (on) cells += `<rect x="${10 + x * 16}" y="${10 + y * 16}" width="14" height="14" rx="3" fill="hsl(${(hue + (y % 2 ? 40 : 0)) % 360},58%,${y < 2 ? 68 : 60}%)"/>`; }));
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="${size}" height="${size}"><rect width="100" height="100" rx="26" fill="hsl(${hue},30%,14%)"/>${cells}</svg>`;
 }
 
 // ---------- fake wallet (simulated; no keys, no network) ----------

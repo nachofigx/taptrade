@@ -1,7 +1,7 @@
-import { SLOT as SLOT0, LOCK as LOCK0, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=19';
-import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=19';
+import { SLOT as SLOT0, LOCK as LOCK0, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=20';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=20';
 import { FRAMES, TRAILS, TUNES, KINDS, KIND_LABEL, itemKey, owns, equip, itemName, SEASON_REWARDS, SEASON_LEVELS, seasonInfo, seasonSync, addSeasonXP, seasonClaimable, seasonClaim, rollChest, GOLD, goldGap, goldTier, FLASH, flashGap, flashXP, flashResult, pickLine, buildClip, clipPriceAt, grant } from './extras.js?v=17';
-import { DEFAULT_IND, sma, ema, rsi, pushTick, holdResample, gaussSmooth } from './indicators.js?v=19';
+import { DEFAULT_IND, sma, ema, rsi, pushTick, holdResample, gaussSmooth } from './indicators.js?v=20';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -170,7 +170,7 @@ document.addEventListener('visibilitychange', () => { if (!document.hidden && mu
 const GIFT_TIERS = {
   bronze: { xp: 25,  pMin: 0.30,  pMax: 0.65, hue: 28,  c1: '#ffb15c', c2: '#a8500c', glow: 'rgba(255,154,61,0.95)',  ribbon: '#ffe6bf', name: 'REGALO' },
   silver: { xp: 75,  pMin: 0.10,  pMax: 0.30, hue: 205, c1: '#dcebff', c2: '#6384c4', glow: 'rgba(170,205,255,0.95)', ribbon: '#ffffff', name: 'REGALO PLATA' },
-  gold:   { xp: 200, pMin: 0.025, pMax: 0.10, hue: 48,  c1: '#ffe680', c2: '#d29200', glow: 'rgba(255,210,74,1)',     ribbon: '#fff7cf', name: 'REGALO DORADO' },
+  gold:   { xp: 200, pMin: 0.025, pMax: 0.10, hue: 48,  c1: '#ffe680', c2: '#d29200', glow: 'rgba(242,193,78,1)',     ribbon: '#fff7cf', name: 'REGALO DORADO' },
 };
 function spawnGift(force, range) {
   const t = now(), k0 = Math.ceil((t + 8) / SLOT), k1 = k0 + 6, roll = Math.random();
@@ -191,9 +191,9 @@ function spawnGift(force, range) {
 function claimGift(g) {
   g.status = 'won'; g.doneAt = now();
   const L = layout(), cx = xOf(L, g.start) + L.cw / 2, cy = yOf(g.hi) + RH / 2, T = GIFT_TIERS[g.tier];
-  burst(cx, cy, { n: 50, hue: T.hue, speed: 380, life: 1, size: 3.8 }); burst(cx, cy, { n: 20, hue: 50, speed: 240, light: 80 }); ring(cx, cy, T.hue, 1.6);
-  if (g.tier !== 'bronze') confetti(cx, cy, g.tier === 'gold' ? 100 : 45);
-  shake(g.tier === 'gold' ? 11 : g.tier === 'silver' ? 6 : 4); sfx.gift(g.tier); buzz([20, 30, 60]);
+  burst(cx, cy, { n: 24, hue: T.hue, speed: 320, life: 0.9, size: 3 }); ring(cx, cy, T.hue, 1.2);
+  if (g.tier !== 'bronze') confetti(cx, cy, g.tier === 'gold' ? 50 : 20);
+  shake(g.tier === 'gold' ? 6 : g.tier === 'silver' ? 3 : 1.5); sfx.gift(g.tier); buzz([20, 30, 60]);
   prof.stats.gifts = (prof.stats.gifts || 0) + 1;
   showBanner(g.tier === 'gold' ? '¡REGALO DORADO!' : '¡REGALO!', '+' + g.xp + ' XP', T.hue, g.tier === 'gold');
   addXP(g.xp); unlock('gift_1'); if (prof.stats.gifts >= 10) unlock('gift_10'); if (g.tier === 'gold') unlock('gift_gold'); persist();
@@ -202,8 +202,8 @@ function drawGift(g, L, th, hasBet) {
   const cw = L.cw, x0 = xOf(L, g.start), y = yOf(g.hi), age = g.doneAt ? L.t - g.doneAt : 0, T = GIFT_TIERS[g.tier];
   if (x0 > W || x0 + cw < 0) return;
   const cx = x0 + cw / 2, cy = y + RH / 2, pulse = 0.5 + 0.5 * Math.sin(L.t * 5 + g.id), grow = Math.min(1, (L.t - g.spawnedAt) / 0.45);
-  const alpha = g.status === 'open' ? 1 : Math.max(0, 1 - age / 1.1), gl = 12 + 14 * pulse + 26 * (g.near || 0);
-  if (g.status === 'open' && Math.random() < 0.18) parts.push({ k: 'dot', x: x0 + Math.random() * cw, y: y + Math.random() * RH, vx: 0, vy: -26, t: 0, max: 0.7, size: 1.9, h: T.hue, light: 85, grav: -20 });
+  const alpha = g.status === 'open' ? 1 : Math.max(0, 1 - age / 1.1), gl = 4 + 4 * pulse + 12 * (g.near || 0);
+  if (g.status === 'open' && Math.random() < 0.05) parts.push({ k: 'dot', x: x0 + Math.random() * cw, y: y + Math.random() * RH, vx: 0, vy: -26, t: 0, max: 0.7, size: 1.9, h: T.hue, light: 85, grav: -20 });
   ctx.save(); ctx.globalAlpha = alpha;
   if (hasBet) { // compact corner badge when you also have a bet on this cell
     ctx.translate(x0 + cw - 11, y + 11); ctx.scale(0.9 + 0.1 * pulse, 0.9 + 0.1 * pulse);
@@ -215,13 +215,13 @@ function drawGift(g, L, th, hasBet) {
   const g0 = 1.5, rad = Math.min(8, RH / 5);
   ctx.shadowColor = T.glow; ctx.shadowBlur = gl; rr(x0 + g0, y + g0, cw - 2 * g0, RH - 2 * g0, rad);
   const fg = ctx.createLinearGradient(0, y, 0, y + RH); fg.addColorStop(0, T.c1 + 'cc'); fg.addColorStop(1, T.c2 + 'cc'); ctx.fillStyle = fg; ctx.fill(); ctx.shadowBlur = 0;
-  ctx.strokeStyle = g.tier === 'gold' ? `hsl(${(L.t * 140) % 360},95%,68%)` : T.c1; ctx.lineWidth = 2; ctx.stroke();
+  ctx.strokeStyle = T.c1; ctx.lineWidth = 2; ctx.stroke();
   // gift box: lid, body, ribbon, bow
   const bw = Math.min(24, cw * 0.4), bx = cx - bw / 2, by = cy - 13;
   ctx.fillStyle = T.c2; ctx.fillRect(bx + 1, by + 8, bw - 2, 12); ctx.fillStyle = T.c1; ctx.fillRect(bx - 1, by + 3, bw + 2, 6);
   ctx.fillStyle = T.ribbon; ctx.fillRect(cx - 2, by + 3, 4, 17); ctx.beginPath(); ctx.ellipse(cx - 4.5, by + 1.5, 4.5, 3, -0.5, 0, 7); ctx.ellipse(cx + 4.5, by + 1.5, 4.5, 3, 0.5, 0, 7); ctx.fill();
-  ctx.textAlign = 'center'; ctx.font = '900 12px Orbitron, system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4; ctx.fillText('+' + g.xp, cx, cy + 14); ctx.shadowBlur = 0;
-  if (g.status === 'won' && age < 1.4) { ctx.globalAlpha = Math.max(0, 1 - age / 1.4); ctx.font = '900 17px Orbitron, system-ui, sans-serif'; ctx.fillStyle = '#fff3a8'; ctx.shadowColor = T.glow; ctx.shadowBlur = 14; ctx.fillText('+' + g.xp + ' XP', cx, y - 6 - age * 40); }
+  ctx.textAlign = 'center'; ctx.font = '700 12px Plex, system-ui, sans-serif'; ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(0,0,0,0.8)'; ctx.shadowBlur = 4; ctx.fillText('+' + g.xp, cx, cy + 14); ctx.shadowBlur = 0;
+  if (g.status === 'won' && age < 1.4) { ctx.globalAlpha = Math.max(0, 1 - age / 1.4); ctx.font = '700 17px Plex, system-ui, sans-serif'; ctx.fillStyle = '#fff3a8'; ctx.shadowColor = T.glow; ctx.shadowBlur = 14; ctx.fillText('+' + g.xp + ' XP', cx, y - 6 - age * 40); }
   ctx.restore();
 }
 // ---------- visual effects ----------
@@ -267,10 +267,9 @@ function drawFx() {
     const b = banner, fade = b.t > 1.6 ? 1 - (b.t - 1.6) / 0.6 : 1, pop = 1 + 0.45 * Math.max(0, 1 - b.t / 0.28) ** 2;
     const fs = (W < 600 ? 0.62 : 1) * (b.big ? 54 : 34), cx = W / 2, cy = TOP + (H - TOP) * 0.24 - b.t * 10;
     ctx.save(); ctx.globalAlpha = Math.max(0, fade); ctx.translate(cx, cy); ctx.scale(pop, pop); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.font = `400 ${fs * 0.86}px Bungee, system-ui, sans-serif`; ctx.lineJoin = 'round'; ctx.lineWidth = 7; ctx.strokeStyle = 'rgba(5,8,16,0.85)'; ctx.strokeText(b.text, 0, 0);
-    const g = ctx.createLinearGradient(0, -fs / 2, 0, fs / 2); g.addColorStop(0, `hsl(${b.hue},95%,80%)`); g.addColorStop(1, `hsl(${b.hue + 40},95%,58%)`);
-    ctx.shadowColor = `hsl(${b.hue},95%,60%)`; ctx.shadowBlur = 26; ctx.fillStyle = g; ctx.fillText(b.text, 0, 0); ctx.shadowBlur = 0;
-    if (b.sub) { ctx.font = `700 ${fs * 0.5}px Rajdhani, system-ui, sans-serif`; ctx.fillStyle = '#eef2fb'; ctx.fillText(b.sub, 0, fs * 0.82); }
+    ctx.font = `700 ${fs * 0.8}px Plex, system-ui, sans-serif`; ctx.lineJoin = 'round'; ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(8,10,14,0.9)'; ctx.strokeText(b.text, 0, 0);
+    ctx.fillStyle = b.big ? '#f2c14e' : '#e8ebf1'; ctx.fillText(b.text, 0, 0);
+    if (b.sub) { ctx.font = `700 ${fs * 0.5}px Plex, system-ui, sans-serif`; ctx.fillStyle = '#e8ebf1'; ctx.fillText(b.sub, 0, fs * 0.8); }
     ctx.restore();
   }
 }
@@ -370,7 +369,7 @@ function addXP(n) {
   const before = levelInfo(prof.xp).level; prof.xp += n; const after = levelInfo(prof.xp).level; persist(); renderLevel();
   if (after > before) {
     const unlocked = THEMES.filter((t) => t.lvl > before && t.lvl <= after).map((t) => 'Tema ' + t.name + ' desbloqueado');
-    showBanner('NIVEL ' + after, unlocked[0] || 'sigue subiendo', 48, true); sfx.level(); confetti(W / 2, H * 0.4, 90); buzz([20, 30, 20, 30, 60]);
+    showBanner('NIVEL ' + after, unlocked[0] || 'sigue subiendo', 48, true); sfx.level(); confetti(W / 2, H * 0.4, 40); buzz([20, 30, 20, 30, 60]);
   }
 }
 function achToast(title, text, xp) {
@@ -401,13 +400,13 @@ async function shareCard() {
   const d = lastBig; if (!d) return toast('Aún no tienes una victoria grande para compartir');
   const th = theme(), c = document.createElement('canvas'); c.width = 1200; c.height = 630; const g = c.getContext('2d');
   const bg = g.createLinearGradient(0, 0, 1200, 630); bg.addColorStop(0, '#0a0f1c'); bg.addColorStop(1, '#070a12'); g.fillStyle = bg; g.fillRect(0, 0, 1200, 630);
-  const glow = g.createRadialGradient(600, 300, 0, 600, 300, 520); glow.addColorStop(0, `rgba(${th.glow},0.28)`); glow.addColorStop(1, `rgba(${th.glow},0)`); g.fillStyle = glow; g.fillRect(0, 0, 1200, 630);
+  const glow = g.createRadialGradient(600, 300, 0, 600, 300, 520); glow.addColorStop(0, `rgba(${th.glow},0.10)`); glow.addColorStop(1, `rgba(${th.glow},0)`); g.fillStyle = glow; g.fillRect(0, 0, 1200, 630);
   g.textAlign = 'center'; g.textBaseline = 'middle';
-  g.font = '400 38px Bungee, system-ui, sans-serif'; g.fillStyle = th.dot; g.fillText('T A P L I N E', 600, 70);
-  g.font = '900 150px Orbitron, system-ui, sans-serif'; g.shadowColor = `rgba(${th.glow},0.9)`; g.shadowBlur = 40; g.fillStyle = '#ffffff'; g.fillText('+' + fmt$(d.profit), 600, 280); g.shadowBlur = 0;
-  g.font = '700 74px Rajdhani, system-ui, sans-serif'; g.fillStyle = '#3dff8a'; g.fillText(d.mult.toFixed(1) + 'x  ·  ' + d.asset, 600, 410);
-  g.font = '600 32px Rajdhani, system-ui, sans-serif'; g.fillStyle = '#8693b0'; g.fillText('Nivel ' + levelInfo(prof.xp).level + '  ·  racha máx. ' + prof.stats.bestStreak, 600, 480);
-  g.font = '500 26px Rajdhani, system-ui, sans-serif'; g.fillText('Modo práctica · sin dinero real · ' + location.host + location.pathname, 600, 565);
+  g.font = '700 34px Plex, system-ui, sans-serif'; g.fillStyle = th.dot; g.fillText('T A P L I N E', 600, 70);
+  g.font = '700 150px Plex, system-ui, sans-serif'; g.fillStyle = '#ffffff'; g.fillText('+' + fmt$(d.profit), 600, 280); g.shadowBlur = 0;
+  g.font = '700 74px Plex, system-ui, sans-serif'; g.fillStyle = '#43d98c'; g.fillText(d.mult.toFixed(1) + 'x  ·  ' + d.asset, 600, 410);
+  g.font = '600 32px Plex, system-ui, sans-serif'; g.fillStyle = '#98a1b3'; g.fillText('Nivel ' + levelInfo(prof.xp).level + '  ·  racha máx. ' + prof.stats.bestStreak, 600, 480);
+  g.font = '500 26px Plex, system-ui, sans-serif'; g.fillText('Modo práctica · sin dinero real · ' + location.host + location.pathname, 600, 565);
   const blob = await new Promise((r) => c.toBlob(r, 'image/png')), file = new File([blob], 'tapline-win.png', { type: 'image/png' });
   if (navigator.canShare && navigator.canShare({ files: [file] })) {
     try { await navigator.share({ files: [file], title: 'Tapline', text: '+' + fmt$(d.profit) + ' (' + d.mult.toFixed(1) + 'x) en Tapline' }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
@@ -581,10 +580,10 @@ function settle(b, s, tt) {
   if (s === 'won') {
     balance += b.stake * b.mult; addLedger(prof, 'payout', b.stake * b.mult); wins++; pnl += profit; streak++; bestStreak = Math.max(bestStreak, streak); renderBal('up');
     const big = b.mult >= 8, mega = b.mult >= 25;
-    burst(cx, cy, { n: big ? 70 : 34, hue: 140, speed: big ? 420 : 300, life: 0.9, size: big ? 4 : 3 }); burst(cx, cy, { n: 18, hue: 50, speed: 220, light: 75 });
-    ring(cx, cy, 140, big ? 1.8 : 1);
-    if (big) { confetti(cx, cy, mega ? 160 : 90); shake(mega ? 16 : 9); showBanner(mega ? 'MEGA WIN!' : 'BIG WIN!', '+' + fmt$(profit) + '  ·  ' + b.mult.toFixed(1) + 'x', mega ? 300 : 140, true); }
-    else shake(3 + Math.min(b.mult, 6));
+    burst(cx, cy, { n: big ? 34 : 14, hue: 140, speed: big ? 360 : 240, life: 0.8, size: big ? 3.4 : 2.6 });
+    ring(cx, cy, 140, big ? 1.4 : 0.9);
+    if (big) { confetti(cx, cy, mega ? 60 : 30); shake(mega ? 9 : 5); showBanner(mega ? 'MEGA WIN!' : 'BIG WIN!', '+' + fmt$(profit) + '  ·  ' + b.mult.toFixed(1) + 'x', mega ? 300 : 140, true); }
+    else shake(0.8 + Math.min(b.mult, 4) * 0.4);
     sfx.win(b.mult, streak); buzz(big ? [30, 40, 80] : 25);
     if ([3, 5, 7, 10, 15, 20].includes(streak)) { setTimeout(() => sfx.streak(streak), 380); if (!big) showBanner('RACHA ×' + streak, 'sigue así', 28, false); }
     renderStreak(true);
@@ -596,7 +595,7 @@ function settle(b, s, tt) {
     if (hadLoss >= 3) unlock('comeback');
     if (balance >= 1500) unlock('rich');
     const cm = comboMap.get(b.k), cn = cm && now() - cm.t < 8 ? cm.n + 1 : 1; comboMap.set(b.k, { n: cn, t: now() });
-    if (cn >= 2) { unlock('combo_2'); sfx.combo(cn); shake(7); burst(cx, cy, { n: 40, hue: 300, speed: 380, life: 0.9 }); if (!big) showBanner('COMBO ×' + cn, 'misma columna', 300, false); }
+    if (cn >= 2) { unlock('combo_2'); sfx.combo(cn); shake(3.5); burst(cx, cy, { n: 16, hue: 300, speed: 300, life: 0.8 }); if (!big) showBanner('COMBO ×' + cn, 'misma columna', 300, false); }
     missionEvent('win', b.mult); if (streak >= 3) missionEvent('streak', streak); missionEvent('pnl', pnl);
     if (big) offerShare(profit, b.mult);
     persist();
@@ -650,10 +649,14 @@ function recompute(L) {
 }
 
 // ---------- drawing ----------
-const hue = (m) => { // low = green/cyan, mid = blue/violet, high = pink, jackpot = orange/gold
-  const t = Math.min(1, Math.log(Math.max(m, 1)) / Math.log(40));
-  return t < 0.78 ? 150 + (t / 0.78) * 180 : 330 + ((t - 0.78) / 0.22) * 72;
-};
+// Payout heat: cool (likely, low pay) -> warm (rare, high pay). Muted on purpose; colour carries one meaning.
+const HEAT = [[1, [96, 190, 188]], [3, [112, 160, 206]], [8, [150, 150, 212]], [20, [214, 160, 98]], [50, [244, 194, 92]]];
+function heat(mult) {
+  const v = Math.max(1, Math.min(50, mult));
+  for (let k = 1; k < HEAT.length; k++) if (v <= HEAT[k][0]) { const [m0, c0] = HEAT[k - 1], [m1, c1] = HEAT[k], t = (Math.log(v) - Math.log(m0)) / (Math.log(m1) - Math.log(m0)); return c0.map((x, q) => Math.round(x + (c1[q] - x) * t)); }
+  return HEAT[HEAT.length - 1][1];
+}
+const hue = (mult) => (mult >= 15 ? 40 : 200);   // particle tint only
 function rr(x, y, w, h, r) {
   ctx.beginPath(); ctx.moveTo(x + r, y);
   ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
@@ -674,7 +677,7 @@ function drawIndicators(L, hx, hy, Wh, reach, indOn, rsiOn) {
   const ind = prof.settings.ind; if (!indOn || !bars.length) return;
   pushTick(bars, L.t, last.p, ind.bar);   // keep the forming bar current even when no trade printed this second
   const closes = bars.map((b) => b.c), step = ind.bar, ageOf = (i) => Math.max(0, L.t - Math.min(bars[i].t0 + step, L.t)), dec = last.p > 1000 ? 2 : 3;
-  let ly = TOP + 128; ctx.font = '700 12.5px Rajdhani, system-ui, sans-serif'; ctx.textAlign = 'left';
+  let ly = TOP + 128; ctx.font = '700 12.5px Plex, system-ui, sans-serif'; ctx.textAlign = 'left';
   for (const key of ['ma1', 'ma2']) {
     const sp = ind[key]; if (!sp.on) continue;
     const s = sp.type === 'ema' ? ema(closes, sp.n) : sma(closes, sp.n), rgb = IND_RGB[key];
@@ -685,36 +688,36 @@ function drawIndicators(L, hx, hy, Wh, reach, indOn, rsiOn) {
     }
     const started = pts.length > 1; ctx.beginPath(); smoothPath(pts);
     const g = ctx.createLinearGradient(L.xNow - Wh, 0, L.xNow, 0); g.addColorStop(0, `rgba(${rgb},0)`); g.addColorStop(0.45, `rgba(${rgb},0.6)`); g.addColorStop(1, `rgba(${rgb},1)`);
-    if (started) { ctx.strokeStyle = g; ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.shadowColor = `rgba(${rgb},0.6)`; ctx.shadowBlur = 6; ctx.stroke(); ctx.shadowBlur = 0; }
+    if (started) { ctx.strokeStyle = g; ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.stroke(); ctx.shadowBlur = 0; }
     ctx.fillStyle = `rgb(${rgb})`; ctx.fillRect(14, ly - 4, 14, 3);
     ctx.fillStyle = 'rgba(230,225,250,0.88)'; ctx.fillText(sp.type.toUpperCase() + ' ' + sp.n + (lastV != null ? '  ' + lastV.toFixed(dec) : '  …'), 34, ly); ly += 17;
   }
   if (!rsiOn) return;
   const n = ind.rsi.n, rv = rsi(closes, n), pX0 = 14, pX1 = L.xNow - 8, pTop = H - 16 - RSI_H, pw = pX1 - pX0;
   const yv = (v) => pTop + 24 + ((100 - v) / 100) * (RSI_H - 32);
-  rr(pX0, pTop, pw, RSI_H, 10); ctx.fillStyle = 'rgba(12,6,28,0.80)'; ctx.fill(); ctx.strokeStyle = 'rgba(184,107,255,0.4)'; ctx.lineWidth = 1; ctx.stroke();
+  rr(pX0, pTop, pw, RSI_H, 10); ctx.fillStyle = 'rgba(16,19,26,0.92)'; ctx.fill(); ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.lineWidth = 1; ctx.stroke();
   ctx.save(); rr(pX0, pTop, pw, RSI_H, 10); ctx.clip();
-  ctx.fillStyle = 'rgba(255,77,109,0.09)'; ctx.fillRect(pX0, yv(100), pw, yv(70) - yv(100)); ctx.fillStyle = 'rgba(61,255,138,0.09)'; ctx.fillRect(pX0, yv(30), pw, yv(0) - yv(30));
+  ctx.fillStyle = 'rgba(255,107,124,0.07)'; ctx.fillRect(pX0, yv(100), pw, yv(70) - yv(100)); ctx.fillStyle = 'rgba(67,217,140,0.07)'; ctx.fillRect(pX0, yv(30), pw, yv(0) - yv(30));
   ctx.setLineDash([3, 5]); ctx.lineWidth = 1;
-  for (const [lv, c] of [[70, 'rgba(255,77,109,0.55)'], [50, 'rgba(255,255,255,0.12)'], [30, 'rgba(61,255,138,0.55)']]) { ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(pX0, yv(lv)); ctx.lineTo(pX1, yv(lv)); ctx.stroke(); }
-  ctx.setLineDash([]); ctx.font = '600 10.5px Rajdhani, system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(154,143,194,0.8)';
+  for (const [lv, c] of [[70, 'rgba(255,107,124,0.55)'], [50, 'rgba(255,255,255,0.12)'], [30, 'rgba(67,217,140,0.55)']]) { ctx.strokeStyle = c; ctx.beginPath(); ctx.moveTo(pX0, yv(lv)); ctx.lineTo(pX1, yv(lv)); ctx.stroke(); }
+  ctx.setLineDash([]); ctx.font = '600 10.5px Plex, system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(152,161,179,0.9)';
   ctx.fillText('70', pX1 - 5, yv(70) - 4); ctx.fillText('30', pX1 - 5, yv(30) - 4);
   let prevPt = null, lastR = null;
   for (let i = bars.length - 1; i >= 0; i--) {
     if (rv[i] == null) continue; if (lastR == null) lastR = rv[i];
     const age = ageOf(i); if (age > reach) break; const x = Math.min(pX1 - 2, hx(age)), y = yv(rv[i]);
     if (prevPt && prevPt.x - x >= 0.6) {
-      const v = prevPt.v; ctx.strokeStyle = v >= 70 ? '#ff4d6d' : v <= 30 ? '#3dff8a' : '#ffd24a';
+      const v = prevPt.v; ctx.strokeStyle = v >= 70 ? '#ff6b7c' : v <= 30 ? '#43d98c' : '#f2c14e';
       ctx.globalAlpha = Math.max(0.12, Math.min(1, (x - pX0) / (pw * 0.5))); ctx.lineWidth = 1.8; ctx.beginPath(); ctx.moveTo(prevPt.x, prevPt.y); ctx.lineTo(x, y); ctx.stroke(); prevPt = { x, y, v: rv[i] };
     } else if (!prevPt) prevPt = { x, y, v: rv[i] };
   }
   ctx.globalAlpha = 1; ctx.restore();
-  ctx.textAlign = 'left'; ctx.font = '700 12.5px Rajdhani, system-ui, sans-serif'; ctx.fillStyle = 'rgba(230,225,250,0.9)';
+  ctx.textAlign = 'left'; ctx.font = '700 12.5px Plex, system-ui, sans-serif'; ctx.fillStyle = 'rgba(230,225,250,0.9)';
   if (lastR == null) { ctx.fillText('RSI ' + n + ' · calentando ' + Math.min(bars.length - 1, n) + '/' + n, pX0 + 10, pTop + 16); return; }
   ctx.fillText('RSI ' + n, pX0 + 10, pTop + 16);
-  const col = lastR >= 70 ? '#ff4d6d' : lastR <= 30 ? '#3dff8a' : '#ffd24a';
-  ctx.textAlign = 'right'; ctx.font = '900 16px Orbitron, system-ui, sans-serif'; ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 8; ctx.fillText(lastR.toFixed(1), pX1 - 10, pTop + 17); ctx.shadowBlur = 0;
-  if (lastR >= 70 || lastR <= 30) { ctx.font = '700 11px Rajdhani, system-ui, sans-serif'; ctx.fillText(lastR >= 70 ? 'SOBRECOMPRA' : 'SOBREVENTA', pX1 - 70, pTop + 16); }
+  const col = lastR >= 70 ? '#ff6b7c' : lastR <= 30 ? '#43d98c' : '#f2c14e';
+  ctx.textAlign = 'right'; ctx.font = '700 16px Plex, system-ui, sans-serif'; ctx.fillStyle = col; ctx.fillText(lastR.toFixed(1), pX1 - 10, pTop + 17);
+  if (lastR >= 70 || lastR <= 30) { ctx.font = '700 11px Plex, system-ui, sans-serif'; ctx.fillText(lastR >= 70 ? 'SOBRECOMPRA' : 'SOBREVENTA', pX1 - 70, pTop + 16); }
 }
 function indActive() { return nowX() >= 260 && W >= 820 && prof.settings.ind.rsi.on; }
 function applyIndLayout() { const s = $('side'), on = indActive(); s.style.bottom = (on ? 16 + RSI_H + 14 : 16) + 'px'; s.classList.toggle('compact', on); }
@@ -724,7 +727,7 @@ function renderIndPop() {
     <select data-ind="${k}.type"><option value="ema" ${ind[k].type === 'ema' ? 'selected' : ''}>EMA</option><option value="sma" ${ind[k].type === 'sma' ? 'selected' : ''}>SMA</option></select>
     <input type="number" min="2" max="100" value="${ind[k].n}" data-ind="${k}.n"></div>`;
   $('indpop').innerHTML = `<h4>Indicadores</h4>${ma('ma1', 'Media móvil 1')}${ma('ma2', 'Media móvil 2')}
-    <div class="irow"><label><input type="checkbox" data-ind="rsi.on" ${ind.rsi.on ? 'checked' : ''}> <span class="sw" style="background:#ffd24a"></span>RSI</label><span class="hint">período</span><input type="number" min="2" max="50" value="${ind.rsi.n}" data-ind="rsi.n"></div>
+    <div class="irow"><label><input type="checkbox" data-ind="rsi.on" ${ind.rsi.on ? 'checked' : ''}> <span class="sw" style="background:#f2c14e"></span>RSI</label><span class="hint">período</span><input type="number" min="2" max="50" value="${ind.rsi.n}" data-ind="rsi.n"></div>
     <div class="irow"><label>Barras de</label><select data-ind="bar">${[1, 2, 5].map((s) => `<option value="${s}" ${ind.bar === s ? 'selected' : ''}>${s} s</option>`).join('')}</select></div>
     <div class="irow"><label>Curva de precio</label><select data-ind="smooth"><option value="1" ${ind.smooth ? 'selected' : ''}>Suave</option><option value="0" ${ind.smooth ? '' : 'selected'}>Exacta</option></select></div>
     <div class="irow"><label>Vista del historial</label><select data-ind="view"><option value="arcade" ${ind.view === 'arcade' ? 'selected' : ''}>Arcade</option><option value="real" ${ind.view === 'real' ? 'selected' : ''}>Real</option></select></div>
@@ -771,7 +774,7 @@ function draw() {
 
   // soft glow around "now"
   const glow = ctx.createRadialGradient(L.xNow, yLast, 0, L.xNow, yLast, 260);
-  glow.addColorStop(0, `rgba(${th.glow},0.10)`); glow.addColorStop(1, `rgba(${th.glow},0)`);
+  glow.addColorStop(0, `rgba(${th.glow},0.045)`); glow.addColorStop(1, `rgba(${th.glow},0)`);
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
 
   // faint horizontal rules
@@ -789,16 +792,16 @@ function draw() {
   // cells
   const betKeys = new Set(bets.map((b) => b.k + ':' + b.r)), giftKeys = new Set(gifts.filter((g) => g.status === 'open').map((g) => g.k + ':' + g.r));
   ctx.textAlign = 'center';
-  ctx.font = '700 ' + Math.max(16, Math.min(25, cw / 2.9)) + 'px Rajdhani, system-ui, sans-serif';
+  ctx.font = '700 ' + Math.max(16, Math.min(25, cw / 2.9)) + 'px Plex, system-ui, sans-serif';
   let canBet = false;
   for (let k = k0; k <= k1; k++) {
     const x0 = xOf(L, k * SLOT), x1 = x0 + cw;
     if (x1 < 0 || x0 > W || k * SLOT < L.t + LOCK) continue;
     ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.beginPath(); ctx.moveTo(Math.round(x0) + 0.5, TOP + 4); ctx.lineTo(Math.round(x0) + 0.5, H); ctx.stroke();
     // column header: seconds until it starts
-    ctx.fillStyle = 'rgba(134,147,176,0.75)'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
+    ctx.fillStyle = 'rgba(152,161,179,0.9)'; ctx.font = '600 12px Plex, system-ui, sans-serif';
     ctx.fillText('+' + Math.max(0, Math.round(k * SLOT - L.t)) + 's', x0 + cw / 2, TOP + 16);
-    ctx.font = '700 ' + Math.max(16, Math.min(25, cw / 2.9)) + 'px Rajdhani, system-ui, sans-serif';
+    ctx.font = '700 ' + Math.max(16, Math.min(25, cw / 2.9)) + 'px Plex, system-ui, sans-serif';
     for (let r = rowBot; r <= rowTop; r++) {
       const key = k + ':' + r, c = board.get(key);
       if (!c || betKeys.has(key)) continue;
@@ -808,44 +811,42 @@ function draw() {
       if (c.off) { // almost-certain cell: visible but not tappable
         rr(x0 + g, y + g, cw - 2 * g, RH - 2 * g, rad); ctx.fillStyle = 'rgba(255,255,255,0.022)'; ctx.fill();
         ctx.strokeStyle = 'rgba(255,255,255,0.07)'; ctx.lineWidth = 1; ctx.stroke();
-        ctx.fillStyle = 'rgba(134,147,176,0.4)'; ctx.fillText('—', x0 + cw / 2, y + RH / 2 + 0.5); continue;
+        ctx.fillStyle = 'rgba(152,161,179,0.9)'; ctx.fillText('—', x0 + cw / 2, y + RH / 2 + 0.5); continue;
       }
-      const hh = hue(c.m), isHover = hover && hover.k === k && hover.r === r;
-      if (isHover) { canBet = true; ctx.shadowColor = `hsla(${hh},90%,60%,0.7)`; ctx.shadowBlur = 16; }
+      const [cr, cg, cb] = heat(c.m), isHover = hover && hover.k === k && hover.r === r;
+      if (isHover) canBet = true;
       rr(x0 + g, y + g, cw - 2 * g, RH - 2 * g, rad);
-      const fg = ctx.createLinearGradient(0, y, 0, y + RH);
-      fg.addColorStop(0, `hsla(${hh},85%,60%,${isHover ? 0.48 : 0.19})`); fg.addColorStop(1, `hsla(${hh},85%,46%,${isHover ? 0.34 : 0.08})`);
-      ctx.fillStyle = fg; ctx.fill(); ctx.shadowBlur = 0;
-      ctx.strokeStyle = `hsla(${hh},85%,68%,${isHover ? 1 : 0.30})`; ctx.lineWidth = isHover ? 1.5 : 1; ctx.stroke();
-      ctx.strokeStyle = `rgba(255,255,255,${isHover ? 0.4 : 0.11})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0 + g + rad, y + g + 1.6); ctx.lineTo(x0 + cw - g - rad, y + g + 1.6); ctx.stroke(); // bevel highlight
-      ctx.fillStyle = `hsla(${hh},95%,${isHover ? 94 : 80}%,${isHover ? 1 : 0.95})`; ctx.shadowColor = `hsla(${hh},95%,60%,0.8)`; ctx.shadowBlur = isHover ? 10 : 4;
-      ctx.fillText(fmtMult(c.m), x0 + cw / 2, y + RH / 2 + 0.5); ctx.shadowBlur = 0;
+      ctx.fillStyle = `rgba(${cr},${cg},${cb},${isHover ? 0.28 : 0.11})`; ctx.fill();
+      ctx.strokeStyle = `rgba(${cr},${cg},${cb},${isHover ? 0.95 : 0.32})`; ctx.lineWidth = isHover ? 1.5 : 1; ctx.stroke();
+      const tr = Math.round(cr + (255 - cr) * 0.34), tg = Math.round(cg + (255 - cg) * 0.34), tb = Math.round(cb + (255 - cb) * 0.34);
+      ctx.fillStyle = `rgba(${tr},${tg},${tb},${isHover ? 1 : 0.94})`;
+      ctx.fillText(fmtMult(c.m), x0 + cw / 2, y + RH / 2 + 0.5);
     }
   }
 
   // bets
   for (const b of bets) {
     const x0 = xOf(L, b.start), y = yOf(b.hi), age = b.settledAt ? L.t - b.settledAt : 0;
-    const col = b.status === 'won' ? '#3dff8a' : b.status === 'lost' ? '#ff4d6d' : '#ffd24a';
+    const col = b.status === 'won' ? '#43d98c' : b.status === 'lost' ? '#ff6b7c' : '#e8ebf1';
     const alpha = b.status === 'open' ? 1 : Math.max(0, 1 - age / 4);
     const popK = b.placedAt ? Math.max(0, 1 - (L.t - b.placedAt) / 0.32) : 0, sc = 1 + 0.3 * popK * popK + (b.int ? 0.07 * b.int * (0.5 + 0.5 * Math.sin(L.t * (7 + 18 * b.int))) : 0);
     ctx.save(); ctx.translate(x0 + cw / 2, y + RH / 2); ctx.scale(sc, sc); ctx.translate(-(x0 + cw / 2), -(y + RH / 2));
     ctx.globalAlpha = alpha;
-    ctx.shadowColor = b.int > 0.55 ? '#ff5470' : col; ctx.shadowBlur = (b.status === 'open' ? 12 : 18) + 30 * (b.int || 0);
+    ctx.shadowColor = '#ff6b7c'; ctx.shadowBlur = b.int > 0.35 ? 6 + 16 * b.int : 0;
     rr(x0 + g + 0.5, y + g + 0.5, cw - 2 * g - 1, RH - 2 * g - 1, rad);
-    ctx.fillStyle = b.status === 'open' ? 'rgba(255,210,74,0.20)' : b.status === 'won' ? 'rgba(61,255,138,0.30)' : 'rgba(255,77,109,0.22)';
-    ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
-    ctx.fillStyle = col; ctx.font = '700 ' + Math.max(12, Math.min(16, cw / 4.3)) + 'px Rajdhani, system-ui, sans-serif';
+    ctx.fillStyle = b.status === 'open' ? 'rgba(232,235,241,0.10)' : b.status === 'won' ? 'rgba(67,217,140,0.30)' : 'rgba(255,107,124,0.22)';
+    ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = col; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.fillStyle = col; ctx.font = '700 ' + Math.max(12, Math.min(16, cw / 4.3)) + 'px Plex, system-ui, sans-serif';
     ctx.fillText(b.status === 'open' ? '$' + fmtStake(b.stake) + '·' + fmtMult(b.mult) : b.status === 'won' ? '✓' : '✗', x0 + cw / 2, y + RH / 2 + 0.5);
     if (b.status === 'open' && L.t >= b.start && L.t <= b.end) { // countdown bar: how much of the 5 s window is left
-      const f = Math.max(0, (b.end - L.t) / SLOT); ctx.fillStyle = f < 0.4 ? '#ff4d6d' : '#3dff8a'; ctx.fillRect(x0 + g + 5, y + RH - g - 7, (cw - 2 * g - 10) * f, 3);
+      const f = Math.max(0, (b.end - L.t) / SLOT); ctx.fillStyle = f < 0.4 ? '#ff6b7c' : '#43d98c'; ctx.fillRect(x0 + g + 5, y + RH - g - 7, (cw - 2 * g - 10) * f, 3);
     }
     ctx.restore();
     ctx.globalAlpha = alpha;
     if (b.status === 'won' && age < 1.4) { // expanding ring + floating payout
-      ctx.globalAlpha = 1 - age / 1.4; ctx.lineWidth = 2; ctx.strokeStyle = '#3dff8a';
+      ctx.globalAlpha = 1 - age / 1.4; ctx.lineWidth = 2; ctx.strokeStyle = '#43d98c';
       ctx.beginPath(); ctx.arc(x0 + cw / 2, y + RH / 2, 10 + age * 55, 0, 7); ctx.stroke();
-      ctx.font = '800 16px Rajdhani, system-ui, sans-serif'; ctx.fillStyle = '#3dff8a';
+      ctx.font = '800 16px Plex, system-ui, sans-serif'; ctx.fillStyle = '#43d98c';
       ctx.fillText('+' + fmt$(b.stake * (b.mult - 1)), x0 + cw / 2, y - 8 - age * 34);
     }
     ctx.globalAlpha = 1; ctx.lineWidth = 1;
@@ -858,7 +859,7 @@ function draw() {
     if (c && !c.off) {
       const x = xOf(L, hover.k * SLOT) + cw / 2, y = yOf((hover.r + 1) * band) - 6;
       const txt = `$${fmtStake(stake)} → ${fmt$(stake * c.m)}`;
-      ctx.font = '700 12px Rajdhani, system-ui, sans-serif';
+      ctx.font = '700 12px Plex, system-ui, sans-serif';
       const tw = ctx.measureText(txt).width + 18;
       rr(x - tw / 2, y - 24, tw, 22, 11); ctx.fillStyle = 'rgba(8,12,22,0.92)'; ctx.fill();
       ctx.strokeStyle = 'rgba(94,242,208,0.6)'; ctx.lineWidth = 1; ctx.stroke();
@@ -886,19 +887,19 @@ function draw() {
     }
   }
   const zg = ctx.createLinearGradient(0, 0, L.xNow, 0);
-  zg.addColorStop(0, `rgba(${th.glow},0)`); zg.addColorStop(1, `rgba(${th.glow},0.035)`);
+  zg.addColorStop(0, `rgba(${th.glow},0)`); zg.addColorStop(1, `rgba(${th.glow},0.02)`);
   ctx.fillStyle = zg; ctx.fillRect(0, TOP + 4, L.xNow, H - TOP - 4);
   if (L.xNow > 160) { // time marks and a label so the scale is honest
     const marks = real ? (SPAN <= 60 ? [15, 30, 45, 60] : SPAN <= 120 ? [30, 60, 90, 120] : [60, 120, 180, 240, 300]) : [30, 60, 120, 240];
-    ctx.textAlign = 'center'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
+    ctx.textAlign = 'center'; ctx.font = '600 12px Plex, system-ui, sans-serif';
     for (const age of marks) {
       const x = hx(age); ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, TOP + 22); ctx.lineTo(Math.round(x) + 0.5, botY); ctx.stroke();
-      ctx.fillStyle = 'rgba(134,147,176,0.6)'; ctx.fillText(age < 60 ? '−' + age + 's' : '−' + age / 60 + 'm', x, TOP + 16);
+      ctx.fillStyle = 'rgba(152,161,179,0.9)'; ctx.fillText(age < 60 ? '−' + age + 's' : '−' + age / 60 + 'm', x, TOP + 16);
     }
-    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(134,147,176,0.55)';
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(152,161,179,0.9)';
     ctx.fillText(real ? 'HISTORIAL · escala real · ' + SPAN / 60 + ' min' : 'HISTORIAL · zoom ×' + histGain.toFixed(1), 14, TOP + 36);
     if (real) { // true price scale, shared with the grid
-      ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(134,147,176,0.55)';
+      ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(152,161,179,0.9)';
       for (let r = rowBot; r <= rowTop + 1; r += 2) { const y = yOf(r * band); if (y > TOP + 176 && y < botY - 6) ctx.fillText(fmtPrice(r * band), 14, y); }
     }
   }
@@ -914,31 +915,30 @@ function draw() {
     }
     ctx.beginPath(); smoothPath(pts);
     ctx.strokeStyle = lg; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.shadowColor = `rgba(${th.glow},0.55)`; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.shadowColor = `rgba(${th.glow},0.35)`; ctx.shadowBlur = 4; ctx.stroke(); ctx.shadowBlur = 0;
   }
   drawIndicators(L, hx, hy, Wh, reach, indOn, rsiOn);
 
   // "now" marker + dashed price guide
   ctx.strokeStyle = `rgba(${th.glow},0.28)`; ctx.setLineDash([3, 6]); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(L.xNow + 0.5, TOP + 4); ctx.lineTo(L.xNow + 0.5, H); ctx.moveTo(L.xNow, yLast); ctx.lineTo(W, yLast); ctx.stroke(); ctx.setLineDash([]);
-  const pulse = 10 + 3 * Math.sin(L.t * 4);
-  ctx.fillStyle = `rgba(${th.glow},0.18)`; ctx.beginPath(); ctx.arc(L.xNow, yLast, pulse, 0, 7); ctx.fill();
-  ctx.fillStyle = th.dot; ctx.shadowColor = th.dot; ctx.shadowBlur = 14; ctx.beginPath(); ctx.arc(L.xNow, yLast, 5, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+  const pulse = 9 + 2 * Math.sin(L.t * 3);
+  ctx.fillStyle = `rgba(${th.glow},0.12)`; ctx.beginPath(); ctx.arc(L.xNow, yLast, pulse, 0, 7); ctx.fill();
+  ctx.fillStyle = th.dot; ctx.beginPath(); ctx.arc(L.xNow, yLast, 4.5, 0, 7); ctx.fill();
 
   // price axis (right) with a live tag
-  ctx.textAlign = 'right'; ctx.font = '600 12px Rajdhani, system-ui, sans-serif';
+  ctx.textAlign = 'right'; ctx.font = '600 12px Plex, system-ui, sans-serif';
   for (let r = rowBot; r <= rowTop + 1; r++) {
     const y = yOf(r * band);
     if (y < TOP + 32 || Math.abs(y - yLast) < 26 || r % 2) continue;
-    ctx.fillStyle = 'rgba(134,147,176,0.7)'; ctx.fillText(fmtPrice(r * band), W - 10, y);
+    ctx.fillStyle = 'rgba(152,161,179,0.9)'; ctx.fillText(fmtPrice(r * band), W - 10, y);
   }
   const dec = band < 0.01 ? 3 : band < 1 ? 2 : 0, tag = last.p.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
-  const small = W < 600; ctx.font = (small ? '900 14px' : '900 17px') + ' Orbitron, system-ui, sans-serif'; const tagW = ctx.measureText(tag).width + (small ? 18 : 26), tagH = small ? 26 : 32;
-  ctx.shadowColor = th.dot; ctx.shadowBlur = 18; rr(W - tagW - 6, yLast - tagH / 2, tagW, tagH, 8); ctx.fillStyle = th.dot; ctx.fill(); ctx.shadowBlur = 0;
-  ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.stroke();
+  const small = W < 600; ctx.font = (small ? '700 14px' : '700 17px') + ' Plex, system-ui, sans-serif'; const tagW = ctx.measureText(tag).width + (small ? 18 : 26), tagH = small ? 26 : 32;
+  rr(W - tagW - 6, yLast - tagH / 2, tagW, tagH, 6); ctx.fillStyle = th.dot; ctx.fill();
   ctx.fillStyle = '#04120e'; ctx.textAlign = 'right'; ctx.fillText(tag, W - (small ? 15 : 19), yLast + 1);
   if (tension > 0.12) { // pulsing vignette that tightens as the price closes in
-    const a = Math.min(0.5, tension * 0.42) * (0.65 + 0.35 * Math.sin(L.t * (6 + 14 * tension))), vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+    const a = Math.min(0.26, tension * 0.3) * (0.7 + 0.3 * Math.sin(L.t * (6 + 12 * tension))), vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
     vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(${tension > 0.6 ? '255,60,90' : th.glow},${a})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   }
   if (slow > 0.05) { ctx.fillStyle = `rgba(0,0,0,${0.55 * slow})`; ctx.fillRect(0, H - 18 * slow, W, 18 * slow); }
@@ -988,8 +988,8 @@ cv.addEventListener('pointerdown', (e) => {
   balance -= stake; addLedger(prof, 'bet', -stake); renderBal('down');
   bets.push({ id: nextId++, k: c.k, r: c.r, start: c.k * SLOT, end: (c.k + 1) * SLOT, lo: c.r * band, hi: (c.r + 1) * band, stake, mult: cell.m, status: 'open', placedAt: t, lastTick: 99, int: 0 });
   const L = layout(), px = xOf(L, c.k * SLOT) + L.cw / 2, py = yOf((c.r + 1) * band) + RH / 2, h = hue(cell.m);
-  burst(px, py, { n: 14 + Math.min(14, Math.round(cell.m)), hue: h, speed: 200, life: 0.55, size: 2.6 }); ring(px, py, h, 0.8);
-  sfx.tap(cell.m); buzz(10); if (cell.m >= 15) shake(2.5);
+  burst(px, py, { n: 5 + Math.min(7, Math.round(cell.m / 2)), hue: h, speed: 170, life: 0.5, size: 2.2 }); ring(px, py, h, 0.6);
+  sfx.tap(cell.m); buzz(10); if (cell.m >= 15) shake(1.2);
   prof.stats.bets++; addXP(2); missionEvent('bet'); if (prof.stats.bets >= 10) unlock('tap_10'); if (prof.stats.bets >= 100) unlock('veteran'); persist();
 });
 function resize() {
@@ -1000,6 +1000,6 @@ function resize() {
   placeAssetMark(); applyIndLayout();
 }
 addEventListener('resize', resize); addEventListener('load', resize); resize();
-['700 16px Rajdhani', '600 12px Rajdhani', '400 20px Bungee', '900 16px Orbitron'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
+['700 16px Plex', '600 12px Plex', '700 16px Plex'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
 connect(); requestAnimationFrame(frame);
 window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, bars: bars.length, nowX: nowX(), ind: prof.settings.ind, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift, bench: (n = 60) => { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, setInd: (patch) => { Object.assign(prof.settings.ind, patch); rebuildBars(); applyIndLayout(); } } };
