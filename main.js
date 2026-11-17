@@ -1,4 +1,4 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet, niceBand } from './engine.js?v=4';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet, niceBand } from './engine.js?v=5';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -20,6 +20,8 @@ let hover = null, ws = null, wsTimer = null, W = 0, H = 0, dpr = 1, nextId = 1, 
 let wins = 0, losses = 0, pnl = 0, lastTickAt = 0;
 let streak = 0, bestStreak = 0, lastFrameAt = performance.now();
 const parts = []; let banner = null, shakeMag = 0;
+const HIST_T = 10, HIST_MAX = 300;   // history compression: log scale, 5 minutes visible
+let histGain = 1;                 // vertical exaggeration at the far (oldest) end
 const now = () => Date.now() / 1000;
 
 // ---------- sound (synthesized with Web Audio, no files) ----------
@@ -212,7 +214,7 @@ function setLive(ok, text) { $('live').className = 'live' + (ok ? ' ok' : ''); $
 function connect() {
   clearTimeout(wsTimer);
   if (ws) { ws.onclose = null; ws.close(); }
-  hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
+  histGain = 1;   hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
   $('price').textContent = '—'; $('price').className = ''; $('chg').textContent = '';
   $('msg').style.display = 'block'; $('msg').textContent = 'Conectando al precio en vivo…'; setLive(false, 'CONECTANDO');
   ws = new WebSocket('wss://ws-feed.exchange.coinbase.com');
@@ -409,14 +411,40 @@ function draw() {
   }
   cv.style.cursor = canBet ? 'pointer' : 'default';
 
-  // price line: fades out toward the past, soft glow
+  // ---- history zone (left of "now"): time is compressed (log scale) and height is exaggerated toward the past, then it fades out
+  const Wh = Math.max(40, L.xNow - 24), lnMax = Math.log(1 + HIST_MAX / HIST_T);
+  const hx = (age) => L.xNow - (Wh * Math.log(1 + age / HIST_T)) / lnMax;
+  let mn = Infinity, mx = -Infinity;
+  for (let i = hist.length - 1; i >= 0; i--) { const h = hist[i]; if (L.t - h.t > HIST_MAX) break; if (h.p < mn) mn = h.p; if (h.p > mx) mx = h.p; }
+  if (mx > mn) {
+    const rangePx = ((mx - mn) / band) * RH, playH = H - TOP - 60;
+    const target = Math.min(20, Math.max(1, (0.5 * playH) / Math.max(rangePx, RH * 0.6)));
+    histGain += (target - histGain) * 0.04;
+  }
+  const zg = ctx.createLinearGradient(0, 0, L.xNow, 0);
+  zg.addColorStop(0, 'rgba(94,242,208,0)'); zg.addColorStop(1, 'rgba(94,242,208,0.035)');
+  ctx.fillStyle = zg; ctx.fillRect(0, TOP + 4, L.xNow, H - TOP - 4);
+  if (L.xNow > 160) { // time marks and a label so the squeezed scale is honest
+    ctx.textAlign = 'center'; ctx.font = '500 10.5px ui-sans-serif, system-ui, sans-serif';
+    for (const [age, lab] of [[30, '−30s'], [60, '−1m'], [120, '−2m'], [240, '−4m']]) {
+      const x = hx(age); ctx.strokeStyle = 'rgba(255,255,255,0.045)'; ctx.beginPath(); ctx.moveTo(Math.round(x) + 0.5, TOP + 22); ctx.lineTo(Math.round(x) + 0.5, H); ctx.stroke();
+      ctx.fillStyle = 'rgba(134,147,176,0.6)'; ctx.fillText(lab, x, TOP + 16);
+    }
+    ctx.textAlign = 'left'; ctx.fillStyle = 'rgba(134,147,176,0.55)'; ctx.fillText('HISTORIAL · zoom ×' + histGain.toFixed(1), 14, TOP + 36);
+  }
   if (hist.length > 1) {
-    const x0 = Math.max(0, L.xNow - 360);
-    const lg = ctx.createLinearGradient(x0, 0, L.xNow, 0);
-    lg.addColorStop(0, 'rgba(238,242,251,0)'); lg.addColorStop(0.6, 'rgba(238,242,251,0.85)'); lg.addColorStop(1, '#ffffff');
-    ctx.beginPath(); let started = false;
-    for (const h of hist) { const x = xOf(L, h.t); if (x < x0 - 20) continue; const y = yOf(h.p); if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y); }
-    ctx.lineTo(L.xNow, yLast);
+    const lg = ctx.createLinearGradient(L.xNow - Wh, 0, L.xNow, 0);
+    lg.addColorStop(0, 'rgba(238,242,251,0)'); lg.addColorStop(0.35, 'rgba(238,242,251,0.35)'); lg.addColorStop(0.8, 'rgba(238,242,251,0.92)'); lg.addColorStop(1, '#ffffff');
+    ctx.beginPath(); ctx.moveTo(L.xNow, yLast); let px = L.xNow;
+    for (let i = hist.length - 1; i >= 0; i--) {
+      const h = hist[i], age = L.t - h.t;
+      if (age > HIST_MAX) break;
+      const x = hx(age);
+      if (px - x < 0.8 && i > 0) continue;           // skip sub-pixel points (keeps long histories cheap)
+      const prog = (L.xNow - x) / Wh, gain = 1 + (histGain - 1) * Math.pow(prog, 1.15);
+      const y = Math.min(H - 12, Math.max(TOP + 26, yLast + (yOf(h.p) - yLast) * gain));
+      ctx.lineTo(x, y); px = x;
+    }
     ctx.strokeStyle = lg; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.shadowColor = 'rgba(94,242,208,0.55)'; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
   }
