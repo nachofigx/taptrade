@@ -1,0 +1,11 @@
+# Tapline (practice mode)
+
+Tap-trading game: tap a grid cell; if the live price touches that price band during that time column, you win stake × multiplier. Play money only, real prices (Coinbase WebSocket).
+
+- `engine.js`  pricing (Monte Carlo touch probabilities, 8% house edge) and bet resolution
+- `main.js`    canvas UI, price feed, bets
+- `engine.test.js`  `node --test tapline/engine.test.js` (includes a ~45 s simulation check that expected return ≈ 92%)
+
+Run: `cd tapline && python3 -m http.server 8137`, then open http://localhost:8137
+
+Next (phase 2): server-side resolution, Pyth oracle, Solana program + vault, session keys. Needs legal review and an audit before real money.

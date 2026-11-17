@@ -1,0 +1,5 @@
+Cloudroom could not copy this project into the cloud, so do not wait for more files.
+
+The `.env` files were not copied, because the project's folder `C:\Users\jifig` is a home folder or holds one, so they include other projects' secrets. Set the project's folder to the project itself to copy them.
+
+Cloud agents can't reach the user's Windows computer. Tell the user what failed: pass on any fix the message names, otherwise ask them to start a new thread.
