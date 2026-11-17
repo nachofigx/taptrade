@@ -1,4 +1,5 @@
-import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=7';
+import { SLOT, LOCK, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=9';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck } from './progress.js?v=9';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -20,6 +21,10 @@ let hover = null, ws = null, wsTimer = null, W = 0, H = 0, dpr = 1, nextId = 1, 
 let wins = 0, losses = 0, pnl = 0, lastTickAt = 0;
 let streak = 0, bestStreak = 0, lastFrameAt = performance.now();
 const parts = []; let banner = null, shakeMag = 0;
+let prof = loadProfile();
+let tension = 0, slow = 0, heartNext = 0, lossRun = 0, lastBig = null, lp = null, shareT = 0;
+const comboMap = new Map();
+const theme = () => THEMES.find((t) => t.id === prof.theme && levelInfo(prof.xp).level >= t.lvl) || THEMES[0];
 const HIST_T = 10, HIST_MAX = 300;   // history compression: log scale, 5 minutes visible
 let histGain = 1;                 // vertical exaggeration at the far (oldest) end
 const now = () => Date.now() / 1000;
@@ -30,7 +35,8 @@ function audio() {
   if (muted) return null;
   if (!actx) {
     const AC = window.AudioContext || window.webkitAudioContext; if (!AC) return null;
-    actx = new AC(); master = actx.createGain(); master.gain.value = 0.55; master.connect(actx.destination);
+    actx = new AC(); master = actx.createGain(); master.gain.value = 0.55;
+    lp = actx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 20000; master.connect(lp); lp.connect(actx.destination);
   }
   if (actx.state === 'suspended') actx.resume();
   return actx;
@@ -77,8 +83,17 @@ const sfx = {
     if (!audio()) return; const t = actx.currentTime, root = semi(660, Math.min(n, 10));
     [0, 7, 12, 16, 19].forEach((x, i) => tone(semi(root, x), t + i * 0.05, 0.3, { type: 'triangle', gain: 0.09 }));
   },
+  beat(i) { // heartbeat: faster and higher as the price closes in on your cell
+    if (!audio()) return; const t = actx.currentTime, f = 52 + 38 * i;
+    tone(f, t, 0.14, { gain: 0.10 + 0.22 * i, slide: 0.6 }); tone(f * 1.45, t + 0.14, 0.11, { gain: 0.06 + 0.13 * i, slide: 0.6 });
+  },
+  tick(n) { if (!audio()) return; tone(880 * (1 + (3 - n) * 0.26), actx.currentTime, 0.07, { type: 'square', gain: 0.045 }); },
+  combo(n) { if (!audio()) return; const t = actx.currentTime, root = semi(660, Math.min(n, 6) * 2); [0, 4, 7, 12, 16, 19].forEach((x, i) => tone(semi(root, x), t + i * 0.045, 0.22, { type: 'triangle', gain: 0.11 })); noise(t, 0.2, 0.08, 3000, 9000); },
+  level() { if (!audio()) return; const t = actx.currentTime; [0, 4, 7, 12, 16, 19, 24].forEach((x, i) => { tone(semi(392, x), t + i * 0.08, 0.5, { type: 'triangle', gain: 0.12 }); tone(semi(392, x) / 2, t + i * 0.08, 0.5, { gain: 0.05 }); }); noise(t + 0.3, 0.9, 0.08, 500, 9000); },
+  ach() { if (!audio()) return; const t = actx.currentTime; [0, 7, 12].forEach((x, i) => tone(semi(988, x), t + i * 0.09, 0.35, { type: 'sine', gain: 0.12 })); tone(semi(988, 24), t + 0.3, 0.5, { gain: 0.06 }); },
   error() { if (!audio()) return; const t = actx.currentTime; tone(150, t, 0.16, { type: 'square', gain: 0.06, slide: 0.7 }); },
 };
+const setSlowFilter = (on) => { if (lp && actx) lp.frequency.setTargetAtTime(on ? 700 : 20000, actx.currentTime, 0.07); };
 const buzz = (p) => { try { navigator.vibrate && navigator.vibrate(p); } catch {} };
 
 // ---------- visual effects ----------
@@ -197,7 +212,85 @@ function logResult(bet) {
   $('log').prepend(d);
   while ($('log').children.length > 5) $('log').lastChild.remove();
 }
-renderTabs(); renderStakes(); renderBal(); renderStats(); renderStreak(); renderMute();
+// ---------- progression: XP, levels, achievements, daily mission, share ----------
+const persist = () => saveProfile(prof);
+function renderLevel() { const li = levelInfo(prof.xp); $('lvlnum').textContent = 'Nv ' + li.level; $('lvlbar').style.width = (100 * li.cur / li.need) + '%'; }
+function addXP(n) {
+  const before = levelInfo(prof.xp).level; prof.xp += n; const after = levelInfo(prof.xp).level; persist(); renderLevel();
+  if (after > before) {
+    const unlocked = THEMES.filter((t) => t.lvl > before && t.lvl <= after).map((t) => 'Tema ' + t.name + ' desbloqueado');
+    showBanner('NIVEL ' + after, unlocked[0] || 'sigue subiendo', 48, true); sfx.level(); confetti(W / 2, H * 0.4, 90); buzz([20, 30, 20, 30, 60]);
+  }
+}
+function achToast(title, text, xp) {
+  const d = document.createElement('div'); d.innerHTML = '<b>★ ' + title + '</b>' + (xp ? '<em>+' + xp + ' XP</em>' : '') + text;
+  $('ach').append(d); setTimeout(() => d.remove(), 4200); while ($('ach').children.length > 3) $('ach').firstChild.remove();
+}
+function unlock(id) {
+  if (prof.ach[id]) return; const a = ACHIEVEMENTS.find((x) => x.id === id); if (!a) return;
+  prof.ach[id] = Date.now(); persist(); achToast('Logro desbloqueado', a.name + ' — ' + a.desc, a.xp); sfx.ach(); addXP(a.xp);
+}
+function missionEvent(type, val) {
+  const mi = prof.mission; if (!mi || mi.done) return;
+  const def = MISSIONS.find((x) => x.id === mi.id); if (!def) return;
+  if (mi.id === 'taps15' && type === 'bet') mi.prog++;
+  else if (mi.id === 'win3x3' && type === 'win' && val >= 3) mi.prog++;
+  else if (mi.id === 'streak3' && type === 'streak' && val >= 3) mi.prog = 1;
+  else if (mi.id === 'big10' && type === 'win' && val >= 10) mi.prog = 1;
+  else if (mi.id === 'profit20' && type === 'pnl') mi.prog = Math.max(mi.prog, val);
+  else return;
+  if (mi.prog >= def.target) { mi.done = true; achToast('Misión diaria cumplida', def.text, def.xp); sfx.ach(); addXP(def.xp); }
+  persist();
+}
+function offerShare(profit, mult) {
+  lastBig = { profit, mult, asset }; const s = $('share'); s.classList.add('on');
+  clearTimeout(shareT); shareT = setTimeout(() => s.classList.remove('on'), 10000);
+}
+async function shareCard() {
+  const d = lastBig; if (!d) return toast('Aún no tienes una victoria grande para compartir');
+  const th = theme(), c = document.createElement('canvas'); c.width = 1200; c.height = 630; const g = c.getContext('2d');
+  const bg = g.createLinearGradient(0, 0, 1200, 630); bg.addColorStop(0, '#0a0f1c'); bg.addColorStop(1, '#070a12'); g.fillStyle = bg; g.fillRect(0, 0, 1200, 630);
+  const glow = g.createRadialGradient(600, 300, 0, 600, 300, 520); glow.addColorStop(0, `rgba(${th.glow},0.28)`); glow.addColorStop(1, `rgba(${th.glow},0)`); g.fillStyle = glow; g.fillRect(0, 0, 1200, 630);
+  g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.font = '800 30px ui-sans-serif, system-ui, sans-serif'; g.fillStyle = th.dot; g.fillText('T A P L I N E', 600, 70);
+  g.font = '900 170px ui-sans-serif, system-ui, sans-serif'; g.shadowColor = `rgba(${th.glow},0.9)`; g.shadowBlur = 40; g.fillStyle = '#ffffff'; g.fillText('+' + fmt$(d.profit), 600, 280); g.shadowBlur = 0;
+  g.font = '800 64px ui-sans-serif, system-ui, sans-serif'; g.fillStyle = '#4ade80'; g.fillText(d.mult.toFixed(1) + 'x  ·  ' + d.asset, 600, 410);
+  g.font = '600 28px ui-sans-serif, system-ui, sans-serif'; g.fillStyle = '#8693b0'; g.fillText('Nivel ' + levelInfo(prof.xp).level + '  ·  racha máx. ' + prof.stats.bestStreak, 600, 480);
+  g.font = '500 24px ui-sans-serif, system-ui, sans-serif'; g.fillText('Modo práctica · sin dinero real · ' + location.host + location.pathname, 600, 565);
+  const blob = await new Promise((r) => c.toBlob(r, 'image/png')), file = new File([blob], 'tapline-win.png', { type: 'image/png' });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: 'Tapline', text: '+' + fmt$(d.profit) + ' (' + d.mult.toFixed(1) + 'x) en Tapline' }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'tapline-win.png'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 4000); toast('Imagen descargada');
+}
+function renderProfile() {
+  const li = levelInfo(prof.xp), st = prof.stats, mi = prof.mission, def = mi && MISSIONS.find((x) => x.id === mi.id);
+  const pct = st.bets ? Math.round((100 * st.wins) / Math.max(1, st.wins + st.losses)) : 0;
+  $('profbody').innerHTML = `
+    <div class="row"><div><h2>Nivel ${li.level}</h2><div style="color:var(--dim);font-size:12.5px">${li.cur} / ${li.need} XP · racha diaria de ${prof.dayStreak} día(s)</div></div><button class="btn" id="profclose">Cerrar</button></div>
+    <div class="xpbar"><u style="width:${(100 * li.cur / li.need).toFixed(1)}%"></u></div>
+    <h3>Misión de hoy</h3>
+    <div class="tile ${mi && mi.done ? 'got' : ''}" style="opacity:1"><b>${def ? def.text : '—'}</b>${mi ? (mi.done ? 'Cumplida · +' + def.xp + ' XP' : (Number.isInteger(mi.prog) ? Math.min(mi.prog, def.target) : Math.min(mi.prog, def.target).toFixed(2)) + ' / ' + def.target + ' · recompensa ' + def.xp + ' XP') : ''}</div>
+    <h3>Estadísticas</h3>
+    <div class="stat4"><div class="tile"><b>${st.bets}</b>apuestas</div><div class="tile"><b>${pct}%</b>aciertos</div><div class="tile"><b>×${st.bestStreak}</b>mejor racha</div><div class="tile"><b>${fmt$(st.biggest)}</b>mayor premio</div></div>
+    <h3>Estilo de la línea de precio</h3>
+    <div class="themes">${THEMES.map((t) => `<button data-th="${t.id}" class="${t.id === theme().id ? 'on' : ''}" ${li.level < t.lvl ? 'disabled' : ''} style="color:${t.dot}">${t.name}${li.level < t.lvl ? ' · Nv ' + t.lvl : ''}</button>`).join('')}</div>
+    <h3>Logros · ${Object.keys(prof.ach).length} / ${ACHIEVEMENTS.length}</h3>
+    <div class="grid2">${ACHIEVEMENTS.map((a) => `<div class="tile ${prof.ach[a.id] ? 'got' : ''}"><b>${prof.ach[a.id] ? '★ ' : ''}${a.name}</b>${a.desc}</div>`).join('')}</div>
+    <h3>Compartir</h3>
+    <button class="btn pri" id="profshare">Compartir mi última victoria grande</button>`;
+  $('profclose').onclick = closeProfile; $('profshare').onclick = shareCard;
+  $('profbody').querySelectorAll('[data-th]').forEach((b) => { b.onclick = () => { prof.theme = b.dataset.th; persist(); renderProfile(); }; });
+}
+function openProfile() { renderProfile(); $('prof').classList.remove('hide'); }
+function closeProfile() { $('prof').classList.add('hide'); }
+$('lvl').onclick = openProfile; $('share').onclick = shareCard;
+$('prof').addEventListener('pointerdown', (e) => { if (e.target === $('prof')) closeProfile(); });
+addEventListener('keydown', (e) => { if (e.key === 'Escape') closeProfile(); });
+
+renderTabs(); renderStakes(); renderBal(); renderStats(); renderStreak(); renderMute(); renderLevel();
+const dc = dailyCheck(prof); persist();
+if (dc) setTimeout(() => { achToast('Racha diaria · día ' + dc.streak, 'Vuelve mañana para seguir sumando', dc.xp); addXP(dc.xp); }, 1800);
 $('mute').onclick = () => { muted = !muted; localStorage.setItem('tl.mute', muted ? '1' : '0'); renderMute(); if (!muted) { audio(); sfx.tap(3); } };
 $('reset').onclick = () => {
   if (bets.some((b) => b.status === 'open')) return toast('Espera a que terminen tus apuestas abiertas', 'l');
@@ -253,10 +346,10 @@ function resolve(prev, cur) {
   for (const b of bets) {
     if (b.status !== 'open') continue;
     const s = stepBet(b, prev, cur);
-    if (s !== 'open') settle(b, s);
+    if (s !== 'open') settle(b, s, cur.t);
   }
 }
-function settle(b, s) {
+function settle(b, s, tt) {
   b.status = s; b.settledAt = now();
   const L = layout(), cx = xOf(L, b.start) + L.cw / 2, cy = yOf(b.hi) + RH / 2, profit = b.stake * (b.mult - 1);
   if (s === 'won') {
@@ -269,8 +362,21 @@ function settle(b, s) {
     sfx.win(b.mult, streak); buzz(big ? [30, 40, 80] : 25);
     if ([3, 5, 7, 10, 15, 20].includes(streak)) { setTimeout(() => sfx.streak(streak), 380); if (!big) showBanner('RACHA ×' + streak, 'sigue así', 28, false); }
     renderStreak(true);
+    const hadLoss = lossRun; lossRun = 0; prof.stats.wins++; prof.stats.biggest = Math.max(prof.stats.biggest, profit); prof.stats.bestStreak = Math.max(prof.stats.bestStreak, streak);
+    addXP(10 + Math.round(9 * Math.log(b.mult + 1)) + (big ? 40 : 0));
+    unlock('first_win'); if (b.mult >= 10) unlock('win_10x'); if (b.mult >= 25) unlock('win_25x');
+    if (streak >= 3) unlock('streak_3'); if (streak >= 5) unlock('streak_5'); if (streak >= 10) unlock('streak_10');
+    if (tt && tt > b.end - 0.6) unlock('last_second');
+    if (hadLoss >= 3) unlock('comeback');
+    if (balance >= 1500) unlock('rich');
+    const cm = comboMap.get(b.k), cn = cm && now() - cm.t < 8 ? cm.n + 1 : 1; comboMap.set(b.k, { n: cn, t: now() });
+    if (cn >= 2) { unlock('combo_2'); sfx.combo(cn); shake(7); burst(cx, cy, { n: 40, hue: 300, speed: 380, life: 0.9 }); if (!big) showBanner('COMBO ×' + cn, 'misma columna', 300, false); }
+    missionEvent('win', b.mult); if (streak >= 3) missionEvent('streak', streak); missionEvent('pnl', pnl);
+    if (big) offerShare(profit, b.mult);
+    persist();
   } else {
-    losses++; pnl -= b.stake; const near = nearMiss(b), had = streak; streak = 0;
+    losses++; pnl -= b.stake; const near = nearMiss(b), had = streak; streak = 0; lossRun++; prof.stats.losses++; addXP(2);
+    if (near) { prof.stats.near++; if (prof.stats.near >= 5) unlock('near_5'); persist(); }
     burst(cx, cy, { n: 16, hue: 350, speed: 140, life: 0.8, grav: 520, size: 2.6, light: 60 });
     if (near) showBanner('¡POR POCO!', null, 38, false);
     else if (had >= 3) showBanner('Racha perdida', null, 350, false);
@@ -326,7 +432,7 @@ const fmtMult = (m) => (m >= 10 ? m.toFixed(1) : m.toFixed(2)) + 'x';
 const fmtPrice = (v) => v.toFixed(band < 0.01 ? 3 : band < 1 ? 2 : 0);
 
 function draw() {
-  const L = layout();
+  const L = layout(), th = theme();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
   if (shakeMag > 0) ctx.translate((Math.random() - 0.5) * shakeMag, (Math.random() - 0.5) * shakeMag);
@@ -342,7 +448,7 @@ function draw() {
 
   // soft glow around "now"
   const glow = ctx.createRadialGradient(L.xNow, yLast, 0, L.xNow, yLast, 260);
-  glow.addColorStop(0, 'rgba(94,242,208,0.10)'); glow.addColorStop(1, 'rgba(94,242,208,0)');
+  glow.addColorStop(0, `rgba(${th.glow},0.10)`); glow.addColorStop(1, `rgba(${th.glow},0)`);
   ctx.fillStyle = glow; ctx.fillRect(0, 0, W, H);
 
   // faint horizontal rules
@@ -397,15 +503,18 @@ function draw() {
     const x0 = xOf(L, b.start), y = yOf(b.hi), age = b.settledAt ? L.t - b.settledAt : 0;
     const col = b.status === 'won' ? '#4ade80' : b.status === 'lost' ? '#fb7185' : '#ffffff';
     const alpha = b.status === 'open' ? 1 : Math.max(0, 1 - age / 4);
-    const popK = b.placedAt ? Math.max(0, 1 - (L.t - b.placedAt) / 0.32) : 0, sc = 1 + 0.3 * popK * popK;
+    const popK = b.placedAt ? Math.max(0, 1 - (L.t - b.placedAt) / 0.32) : 0, sc = 1 + 0.3 * popK * popK + (b.int ? 0.07 * b.int * (0.5 + 0.5 * Math.sin(L.t * (7 + 18 * b.int))) : 0);
     ctx.save(); ctx.translate(x0 + cw / 2, y + RH / 2); ctx.scale(sc, sc); ctx.translate(-(x0 + cw / 2), -(y + RH / 2));
     ctx.globalAlpha = alpha;
-    ctx.shadowColor = col; ctx.shadowBlur = b.status === 'open' ? 12 : 18;
+    ctx.shadowColor = b.int > 0.55 ? '#ff5470' : col; ctx.shadowBlur = (b.status === 'open' ? 12 : 18) + 30 * (b.int || 0);
     rr(x0 + g + 0.5, y + g + 0.5, cw - 2 * g - 1, RH - 2 * g - 1, rad);
     ctx.fillStyle = b.status === 'open' ? 'rgba(255,255,255,0.15)' : b.status === 'won' ? 'rgba(74,222,128,0.30)' : 'rgba(251,113,133,0.22)';
     ctx.fill(); ctx.shadowBlur = 0; ctx.strokeStyle = col; ctx.lineWidth = 2; ctx.stroke();
     ctx.fillStyle = col; ctx.font = '700 ' + Math.max(10.5, Math.min(13, cw / 5.2)) + 'px ui-sans-serif, system-ui, sans-serif';
     ctx.fillText(b.status === 'open' ? '$' + b.stake + '·' + fmtMult(b.mult) : b.status === 'won' ? '✓' : '✗', x0 + cw / 2, y + RH / 2 + 0.5);
+    if (b.status === 'open' && L.t >= b.start && L.t <= b.end) { // countdown bar: how much of the 5 s window is left
+      const f = Math.max(0, (b.end - L.t) / SLOT); ctx.fillStyle = f < 0.4 ? '#fb7185' : '#4ade80'; ctx.fillRect(x0 + g + 5, y + RH - g - 7, (cw - 2 * g - 10) * f, 3);
+    }
     ctx.restore();
     ctx.globalAlpha = alpha;
     if (b.status === 'won' && age < 1.4) { // expanding ring + floating payout
@@ -443,7 +552,7 @@ function draw() {
     histGain += (target - histGain) * 0.04;
   }
   const zg = ctx.createLinearGradient(0, 0, L.xNow, 0);
-  zg.addColorStop(0, 'rgba(94,242,208,0)'); zg.addColorStop(1, 'rgba(94,242,208,0.035)');
+  zg.addColorStop(0, `rgba(${th.glow},0)`); zg.addColorStop(1, `rgba(${th.glow},0.035)`);
   ctx.fillStyle = zg; ctx.fillRect(0, TOP + 4, L.xNow, H - TOP - 4);
   if (L.xNow > 160) { // time marks and a label so the squeezed scale is honest
     ctx.textAlign = 'center'; ctx.font = '500 10.5px ui-sans-serif, system-ui, sans-serif';
@@ -455,7 +564,7 @@ function draw() {
   }
   if (hist.length > 1) {
     const lg = ctx.createLinearGradient(L.xNow - Wh, 0, L.xNow, 0);
-    lg.addColorStop(0, 'rgba(238,242,251,0)'); lg.addColorStop(0.35, 'rgba(238,242,251,0.35)'); lg.addColorStop(0.8, 'rgba(238,242,251,0.92)'); lg.addColorStop(1, '#ffffff');
+    lg.addColorStop(0, `rgba(${th.line},0)`); lg.addColorStop(0.35, `rgba(${th.line},0.35)`); lg.addColorStop(0.8, `rgba(${th.line},0.92)`); lg.addColorStop(1, '#ffffff');
     ctx.beginPath(); ctx.moveTo(L.xNow, yLast); let px = L.xNow;
     for (let i = hist.length - 1; i >= 0; i--) {
       const h = hist[i], age = L.t - h.t;
@@ -467,15 +576,15 @@ function draw() {
       ctx.lineTo(x, y); px = x;
     }
     ctx.strokeStyle = lg; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
-    ctx.shadowColor = 'rgba(94,242,208,0.55)'; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
+    ctx.shadowColor = `rgba(${th.glow},0.55)`; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
   }
 
   // "now" marker + dashed price guide
-  ctx.strokeStyle = 'rgba(94,242,208,0.28)'; ctx.setLineDash([3, 6]); ctx.lineWidth = 1;
+  ctx.strokeStyle = `rgba(${th.glow},0.28)`; ctx.setLineDash([3, 6]); ctx.lineWidth = 1;
   ctx.beginPath(); ctx.moveTo(L.xNow + 0.5, TOP + 4); ctx.lineTo(L.xNow + 0.5, H); ctx.moveTo(L.xNow, yLast); ctx.lineTo(W, yLast); ctx.stroke(); ctx.setLineDash([]);
   const pulse = 10 + 3 * Math.sin(L.t * 4);
-  ctx.fillStyle = 'rgba(94,242,208,0.18)'; ctx.beginPath(); ctx.arc(L.xNow, yLast, pulse, 0, 7); ctx.fill();
-  ctx.fillStyle = '#5ef2d0'; ctx.shadowColor = '#5ef2d0'; ctx.shadowBlur = 14; ctx.beginPath(); ctx.arc(L.xNow, yLast, 5, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
+  ctx.fillStyle = `rgba(${th.glow},0.18)`; ctx.beginPath(); ctx.arc(L.xNow, yLast, pulse, 0, 7); ctx.fill();
+  ctx.fillStyle = th.dot; ctx.shadowColor = th.dot; ctx.shadowBlur = 14; ctx.beginPath(); ctx.arc(L.xNow, yLast, 5, 0, 7); ctx.fill(); ctx.shadowBlur = 0;
 
   // price axis (right) with a live tag
   ctx.textAlign = 'right'; ctx.font = '500 11px ui-sans-serif, system-ui, sans-serif';
@@ -485,11 +594,33 @@ function draw() {
     ctx.fillStyle = 'rgba(134,147,176,0.7)'; ctx.fillText(fmtPrice(r * band), W - 10, y);
   }
   const tag = fmtPrice(last.p), tagW = ctx.measureText(tag).width + 18;
-  rr(W - tagW - 4, yLast - 11, tagW, 22, 6); ctx.fillStyle = '#5ef2d0'; ctx.fill();
+  rr(W - tagW - 4, yLast - 11, tagW, 22, 6); ctx.fillStyle = th.dot; ctx.fill();
   ctx.fillStyle = '#04120e'; ctx.font = '700 11.5px ui-sans-serif, system-ui, sans-serif'; ctx.fillText(tag, W - 13, yLast + 0.5);
+  if (tension > 0.12) { // pulsing vignette that tightens as the price closes in
+    const a = Math.min(0.5, tension * 0.42) * (0.65 + 0.35 * Math.sin(L.t * (6 + 14 * tension))), vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.35, W / 2, H / 2, Math.max(W, H) * 0.75);
+    vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, `rgba(${tension > 0.6 ? '255,60,90' : th.glow},${a})`); ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
+  }
+  if (slow > 0.05) { ctx.fillStyle = `rgba(0,0,0,${0.55 * slow})`; ctx.fillRect(0, H - 18 * slow, W, 18 * slow); }
   drawFx();
 }
-function frame(ts) { const dt = Math.min(0.05, ((ts || performance.now()) - lastFrameAt) / 1000); lastFrameAt = ts || performance.now(); stepFx(dt); draw(); requestAnimationFrame(frame); }
+// Tension: how close the price is to each open bet's band. Drives heartbeat, pulsing, vignette and slow-mo.
+function updateTension(t, dt) {
+  let ten = 0, trig = false;
+  if (last) for (const b of bets) {
+    if (b.status !== 'open') { b.int = 0; continue; }
+    const active = t >= b.start && t <= b.end, soon = t >= b.start - 1.2 && t < b.start;
+    const p = last.p, d = p < b.lo ? b.lo - p : p >= b.hi ? p - b.hi : 0, dRows = d / band;
+    b.int = active || soon ? Math.max(0, 1 - dRows / 2.5) * (active ? 1 : 0.5) : 0;
+    ten = Math.max(ten, b.int);
+    if (active && dRows < 0.45) trig = true;
+    if (active) { const rem = b.end - t; for (const n of [3, 2, 1]) if (rem <= n && b.lastTick > n) { b.lastTick = n; if (rem > n - 0.6) sfx.tick(n); } }
+  }
+  tension += (ten - tension) * Math.min(1, dt * 6);
+  const was = slow > 0.5; slow += ((trig ? 1 : 0) - slow) * Math.min(1, dt * 5);
+  if (was !== slow > 0.5) setSlowFilter(slow > 0.5);
+  if (tension > 0.12 && t >= heartNext) { sfx.beat(tension); if (tension > 0.7) buzz(8); heartNext = t + 1 / (1.3 + 5 * tension); }
+}
+function frame(ts) { const dt = Math.min(0.05, ((ts || performance.now()) - lastFrameAt) / 1000); lastFrameAt = ts || performance.now(); updateTension(now(), dt); stepFx(dt * (1 - 0.7 * slow)); draw(); requestAnimationFrame(frame); }
 
 // ---------- input ----------
 function cellAt(x, y) {
@@ -508,10 +639,11 @@ cv.addEventListener('pointerdown', (e) => {
   if (balance < stake) { sfx.error(); return toast('Saldo insuficiente para $' + stake, 'l'); }
   if (bets.some((b) => b.status === 'open' && b.k === c.k && b.r === c.r)) return;
   balance -= stake; renderBal('down');
-  bets.push({ id: nextId++, k: c.k, r: c.r, start: c.k * SLOT, end: (c.k + 1) * SLOT, lo: c.r * band, hi: (c.r + 1) * band, stake, mult: cell.m, status: 'open', placedAt: t });
+  bets.push({ id: nextId++, k: c.k, r: c.r, start: c.k * SLOT, end: (c.k + 1) * SLOT, lo: c.r * band, hi: (c.r + 1) * band, stake, mult: cell.m, status: 'open', placedAt: t, lastTick: 99, int: 0 });
   const L = layout(), px = xOf(L, c.k * SLOT) + L.cw / 2, py = yOf((c.r + 1) * band) + RH / 2, h = hue(cell.m);
   burst(px, py, { n: 14 + Math.min(14, Math.round(cell.m)), hue: h, speed: 200, life: 0.55, size: 2.6 }); ring(px, py, h, 0.8);
   sfx.tap(cell.m); buzz(10); if (cell.m >= 15) shake(2.5);
+  prof.stats.bets++; addXP(2); missionEvent('bet'); if (prof.stats.bets >= 10) unlock('tap_10'); if (prof.stats.bets >= 100) unlock('veteran'); persist();
 });
 function resize() {
   dpr = window.devicePixelRatio || 1; W = innerWidth; H = innerHeight;
@@ -521,4 +653,4 @@ function resize() {
 }
 addEventListener('resize', resize); addEventListener('load', resize); resize();
 connect(); requestAnimationFrame(frame);
-window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx } };
+window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile } };

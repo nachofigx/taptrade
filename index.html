@@ -24,6 +24,7 @@
   .brand { display:flex; align-items:center; gap:9px; font-weight:800; letter-spacing:.14em; font-size:13px; }
   .brand svg { width:22px; height:22px; }
   .brand span { background:linear-gradient(90deg,var(--accent),var(--accent2)); -webkit-background-clip:text; background-clip:text; color:transparent; }
+  .badge, .live, .price small, .price b { white-space:nowrap; }
   .badge { font-size:10.5px; letter-spacing:.06em; text-transform:uppercase; padding:3px 9px; border-radius:99px; color:var(--dim); border:1px solid var(--line); }
   .tabs, .stakes { display:flex; padding:3px; gap:2px; background:rgba(255,255,255,.04); border:1px solid var(--line); border-radius:11px; }
   .tabs button, .stakes button { border:0; background:transparent; color:var(--dim); padding:6px 12px; border-radius:8px; font:600 13px inherit; font-family:inherit; cursor:pointer; transition:.15s; }
@@ -48,6 +49,28 @@
   .streak.on { display:flex; } .streak.pop { animation:spop .45s cubic-bezier(.2,1.6,.4,1); } .streak svg { width:15px; height:15px; }
   @keyframes spop { 0% { transform:scale(.6); } 60% { transform:scale(1.25); } 100% { transform:scale(1); } }
   .icon.muted { color:var(--loss); }
+  .lvl { display:flex; flex-direction:column; gap:4px; align-items:stretch; min-width:66px; padding:5px 10px; border-radius:11px; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--text); cursor:pointer; font:700 12px inherit; font-family:inherit; }
+  .lvl:hover { border-color:rgba(255,255,255,.22); }
+  .lvl i { display:block; height:4px; border-radius:4px; background:rgba(255,255,255,.1); overflow:hidden; }
+  .lvl u { display:block; height:100%; width:0; background:linear-gradient(90deg,var(--accent),var(--accent2)); transition:width .5s; text-decoration:none; }
+  #ach { position:fixed; right:16px; top:84px; z-index:4; display:flex; flex-direction:column; gap:8px; pointer-events:none; }
+  #ach div { width:260px; padding:10px 14px; border-radius:12px; background:var(--glass); backdrop-filter:blur(14px); border:1px solid rgba(255,210,74,.5); box-shadow:0 0 22px rgba(255,210,74,.18); animation:in .35s; font-size:12.5px; }
+  #ach b { display:block; color:#ffd24a; font-size:11px; letter-spacing:.08em; text-transform:uppercase; margin-bottom:2px; } #ach em { color:var(--accent); font-style:normal; font-weight:700; float:right; }
+  #share { position:fixed; right:16px; bottom:44px; z-index:4; display:none; padding:10px 16px; border-radius:99px; border:1px solid rgba(94,242,208,.5); color:var(--text); font:700 13px inherit; font-family:inherit; cursor:pointer; animation:in .35s; }
+  #share.on { display:block; } #share:hover { border-color:var(--accent); }
+  #prof { position:fixed; inset:0; z-index:6; display:grid; place-items:center; background:rgba(3,6,12,.62); backdrop-filter:blur(5px); -webkit-backdrop-filter:blur(5px); } #prof.hide { display:none; }
+  .sheet { width:min(740px,94vw); max-height:88vh; overflow:auto; padding:20px 22px; background:#0d1320 !important; }
+  .sheet { scrollbar-width:thin; scrollbar-color:#2a3550 transparent; }
+  .sheet h2 { margin:0 0 4px; font-size:20px; } .sheet h3 { margin:18px 0 8px; font-size:11px; color:var(--dim); text-transform:uppercase; letter-spacing:.1em; }
+  .xpbar { height:8px; border-radius:8px; background:rgba(255,255,255,.08); overflow:hidden; margin:8px 0 2px; } .xpbar u { display:block; height:100%; background:linear-gradient(90deg,var(--accent),var(--accent2)); text-decoration:none; }
+  .grid2 { display:grid; grid-template-columns:repeat(auto-fill,minmax(210px,1fr)); gap:8px; }
+  .tile { padding:10px 12px; border-radius:11px; border:1px solid var(--line); background:rgba(255,255,255,.03); font-size:12.5px; } .tile b { display:block; font-size:13px; }
+  .tile.got { border-color:rgba(255,210,74,.45); background:rgba(255,210,74,.07); } .tile.got b { color:#ffd24a; } .tile:not(.got) { opacity:.5; }
+  .stat4 { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; } .stat4 .tile { text-align:center; } .stat4 b { font-size:17px; }
+  .themes { display:flex; gap:8px; flex-wrap:wrap; } .themes button { padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--text); font:600 13px inherit; font-family:inherit; cursor:pointer; }
+  .themes button.on { border-color:var(--accent); box-shadow:inset 0 0 0 1px var(--accent); } .themes button:disabled { opacity:.4; cursor:not-allowed; }
+  .row { display:flex; gap:10px; align-items:center; justify-content:space-between; } .btn { padding:8px 14px; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.05); color:var(--text); font:600 13px inherit; font-family:inherit; cursor:pointer; }
+  .btn.pri { background:linear-gradient(135deg,var(--accent),var(--accent2)); color:#06101a; border:0; }
   .icon { width:34px; height:34px; display:grid; place-items:center; border-radius:10px; border:1px solid var(--line); background:rgba(255,255,255,.04); color:var(--dim); cursor:pointer; font:600 15px inherit; font-family:inherit; }
   .icon:hover { color:var(--text); border-color:rgba(255,255,255,.2); }
 
@@ -88,10 +111,11 @@
       <rect x="2" y="13" width="9" height="9" rx="2.5" fill="url(#g)"/><rect x="13" y="13" width="9" height="9" rx="2.5" fill="url(#g)" opacity=".55"/></svg>
     <span>TAPLINE</span>
   </div>
-  <div class="badge">Practice · sin dinero real</div>
+  <div class="badge" title="Saldo ficticio, sin dinero real">Práctica</div>
   <div class="tabs" id="tabs"></div>
   <div class="price"><b id="price">—</b><small id="chg"></small></div>
   <div class="live" id="live"><i></i><span id="livetxt">CONECTANDO</span></div>
+  <button class="lvl" id="lvl" title="Perfil, logros y misión diaria"><b id="lvlnum">Nv 1</b><i><u id="lvlbar"></u></i></button>
   <div class="streak" id="streak"></div>
   <div class="grow"></div>
   <div class="stakes" id="stakes"></div>
@@ -105,9 +129,12 @@
   <div id="log"></div>
 </div>
 <div id="msg">Conectando al precio en vivo…</div>
+<div id="ach"></div>
+<button id="share" class="card">Compartir victoria</button>
+<div id="prof" class="hide"><div class="sheet card" id="profbody"></div></div>
 <div id="toast" class="card"></div>
 <div id="help" class="card"><div><b>Cómo jugar.</b> Toca una casilla: si el precio la toca dentro de su columna de tiempo, cobras <b>apuesta × multiplicador</b>. Más lejos del precio paga más. Saldo ficticio, precio real.</div><button id="helpok">Entendido</button></div>
 <div id="foot">Precios en vivo de Coinbase</div>
-<script type="module" src="main.js?v=7"></script>
+<script type="module" src="main.js?v=9"></script>
 </body>
 </html>
