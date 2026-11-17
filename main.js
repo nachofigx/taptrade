@@ -1,7 +1,7 @@
-import { SLOT as SLOT0, LOCK as LOCK0, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=17';
-import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=17';
+import { SLOT as SLOT0, LOCK as LOCK0, STEPS, DT, Vol, computeBoard, stepBet } from './engine.js?v=19';
+import { THEMES, ACHIEVEMENTS, MISSIONS, levelInfo, loadProfile, saveProfile, dailyCheck, AVATAR_SEEDS, pixelAvatarSVG, makeAddr, shortAddr, addLedger } from './progress.js?v=19';
 import { FRAMES, TRAILS, TUNES, KINDS, KIND_LABEL, itemKey, owns, equip, itemName, SEASON_REWARDS, SEASON_LEVELS, seasonInfo, seasonSync, addSeasonXP, seasonClaimable, seasonClaim, rollChest, GOLD, goldGap, goldTier, FLASH, flashGap, flashXP, flashResult, pickLine, buildClip, clipPriceAt, grant } from './extras.js?v=17';
-import { DEFAULT_IND, sma, ema, rsi, pushTick } from './indicators.js?v=17';
+import { DEFAULT_IND, sma, ema, rsi, pushTick, holdResample, gaussSmooth } from './indicators.js?v=19';
 
 const $ = (id) => document.getElementById(id);
 const cv = $('c'), ctx = cv.getContext('2d');
@@ -27,6 +27,7 @@ let streak = 0, bestStreak = 0, lastFrameAt = performance.now();
 const parts = []; let banner = null, shakeMag = 0;
 let prof = loadProfile();
 (() => { const d = DEFAULT_IND, i = prof.settings.ind || {}; prof.settings.ind = { ...d, ...i, ma1: { ...d.ma1, ...i.ma1 }, ma2: { ...d.ma2, ...i.ma2 }, rsi: { ...d.rsi, ...i.rsi } }; })();
+let dispP = 0, lastDrawAt = 0;   // price shown by the "now" dot/line: eases toward the real last price
 let bars = [];             // price bars for the indicators: one close per prof.settings.ind.bar seconds
 const RSI_H = 104;         // height of the RSI panel
 let tension = 0, slow = 0, heartNext = 0, lossRun = 0, lastBig = null, lp = null, shareT = 0;
@@ -527,7 +528,7 @@ function connect() {
   clearTimeout(wsTimer);
   if (ws) { ws.onclose = null; ws.close(); }
   gifts.length = 0; nextGift = now() + 10;
-  bars = []; histGain = 1;   hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
+  dispP = 0; bars = []; histGain = 1;   hist = []; last = null; first = null; vol = new Vol(); board = new Map(); band = 1; center = 0;
   $('price').textContent = '—'; $('price').className = ''; $('chg').textContent = '';
   $('msg').style.display = 'block'; $('msg').textContent = 'Conectando al precio en vivo…'; setLive(false, 'CONECTANDO');
   ws = new WebSocket('wss://ws-feed.exchange.coinbase.com');
@@ -661,6 +662,12 @@ function rr(x, y, w, h, r) {
 const fmtMult = (m) => (m >= 10 ? m.toFixed(1) : m.toFixed(2)) + 'x';
 const fmtPrice = (v) => v.toFixed(band < 0.01 ? 3 : band < 1 ? 2 : 0);
 
+// Draws a smooth curve through pts ([[x,y],...]) using quadratic segments between midpoints (caller does beginPath/stroke).
+function smoothPath(pts) {
+  if (!pts.length) return; ctx.moveTo(pts[0][0], pts[0][1]);
+  for (let i = 1; i < pts.length - 1; i++) ctx.quadraticCurveTo(pts[i][0], pts[i][1], (pts[i][0] + pts[i + 1][0]) / 2, (pts[i][1] + pts[i + 1][1]) / 2);
+  if (pts.length > 1) ctx.lineTo(pts[pts.length - 1][0], pts[pts.length - 1][1]);
+}
 // ---------- technical indicators (basic): two moving averages and RSI ----------
 const IND_RGB = { ma1: '44,245,210', ma2: '255,94,242' };
 function drawIndicators(L, hx, hy, Wh, reach, indOn, rsiOn) {
@@ -671,12 +678,12 @@ function drawIndicators(L, hx, hy, Wh, reach, indOn, rsiOn) {
   for (const key of ['ma1', 'ma2']) {
     const sp = ind[key]; if (!sp.on) continue;
     const s = sp.type === 'ema' ? ema(closes, sp.n) : sma(closes, sp.n), rgb = IND_RGB[key];
-    ctx.beginPath(); let started = false, lastV = null;
+    const pts = []; let lastV = null;
     for (let i = bars.length - 1; i >= 0; i--) {
       if (s[i] == null) continue; if (lastV == null) lastV = s[i];
-      const age = ageOf(i); if (age > reach) break; const x = hx(age), y = hy(s[i], x);
-      if (!started) { ctx.moveTo(x, y); started = true; } else ctx.lineTo(x, y);
+      const age = ageOf(i); if (age > reach) break; const x = hx(age); pts.push([x, hy(s[i], x)]);
     }
+    const started = pts.length > 1; ctx.beginPath(); smoothPath(pts);
     const g = ctx.createLinearGradient(L.xNow - Wh, 0, L.xNow, 0); g.addColorStop(0, `rgba(${rgb},0)`); g.addColorStop(0.45, `rgba(${rgb},0.6)`); g.addColorStop(1, `rgba(${rgb},1)`);
     if (started) { ctx.strokeStyle = g; ctx.lineWidth = 1.8; ctx.lineJoin = 'round'; ctx.shadowColor = `rgba(${rgb},0.6)`; ctx.shadowBlur = 6; ctx.stroke(); ctx.shadowBlur = 0; }
     ctx.fillStyle = `rgb(${rgb})`; ctx.fillRect(14, ly - 4, 14, 3);
@@ -719,9 +726,10 @@ function renderIndPop() {
   $('indpop').innerHTML = `<h4>Indicadores</h4>${ma('ma1', 'Media móvil 1')}${ma('ma2', 'Media móvil 2')}
     <div class="irow"><label><input type="checkbox" data-ind="rsi.on" ${ind.rsi.on ? 'checked' : ''}> <span class="sw" style="background:#ffd24a"></span>RSI</label><span class="hint">período</span><input type="number" min="2" max="50" value="${ind.rsi.n}" data-ind="rsi.n"></div>
     <div class="irow"><label>Barras de</label><select data-ind="bar">${[1, 2, 5].map((s) => `<option value="${s}" ${ind.bar === s ? 'selected' : ''}>${s} s</option>`).join('')}</select></div>
+    <div class="irow"><label>Curva de precio</label><select data-ind="smooth"><option value="1" ${ind.smooth ? 'selected' : ''}>Suave</option><option value="0" ${ind.smooth ? '' : 'selected'}>Exacta</option></select></div>
     <div class="irow"><label>Vista del historial</label><select data-ind="view"><option value="arcade" ${ind.view === 'arcade' ? 'selected' : ''}>Arcade</option><option value="real" ${ind.view === 'real' ? 'selected' : ''}>Real</option></select></div>
     <div class="irow"><label>Ventana (vista real)</label><select data-ind="span">${[60, 120, 300].map((s) => `<option value="${s}" ${ind.span === s ? 'selected' : ''}>${s / 60} min</option>`).join('')}</select></div>
-    <div class="hint2">Se calculan con el precio en vivo, una barra por intervalo. El RSI necesita período + 1 barras para empezar. «Real» usa tiempo lineal y la misma escala de precio que la cuadrícula.</div>`;
+    <div class="hint2">«Suave» solo cambia el dibujo; las apuestas se resuelven siempre con el precio exacto. Los indicadores se calculan con el precio en vivo, una barra por intervalo. El RSI necesita período + 1 barras para empezar. «Real» usa tiempo lineal y la misma escala de precio que la cuadrícula.</div>`;
   $('indpop').querySelectorAll('[data-ind]').forEach((el) => {
     el.onchange = () => {
       const path = el.dataset.ind.split('.'); let o = prof.settings.ind; for (let i = 0; i < path.length - 1; i++) o = o[path[i]];
@@ -729,6 +737,7 @@ function renderIndPop() {
       if (el.type === 'checkbox') v = el.checked;
       else if (el.type === 'number') v = Math.max(+el.min, Math.min(+el.max, Math.round(+el.value) || +el.min));
       else if (k === 'bar' || k === 'span') v = +el.value;
+      else if (k === 'smooth') v = el.value === '1';
       else v = el.value;
       o[k] = v; if (el.type === 'number') el.value = v;
       saveProfile(prof); if (k === 'bar') rebuildBars(); applyIndLayout();
@@ -748,13 +757,16 @@ function draw() {
   ctx.clearRect(0, 0, W, H);
   if (shakeMag > 0) ctx.translate((Math.random() - 0.5) * shakeMag, (Math.random() - 0.5) * shakeMag);
   if (!last) return;
-  center += (last.p - center) * 0.08;
+  const nowMs = performance.now(), dtd = lastDrawAt ? Math.min(0.1, (nowMs - lastDrawAt) / 1000) : 0.016; lastDrawAt = nowMs;
+  if (!dispP) dispP = last.p;
+  dispP += (last.p - dispP) * (1 - Math.exp(-dtd / 0.09));
+  center += (dispP - center) * (1 - Math.exp(-dtd / 0.22));
   if (L.t - boardAt > 1) recompute(L);
 
   const cw = L.cw, g = 1.5, rad = Math.min(7, RH / 5);
   const rowTop = Math.floor(priceAtY(0) / band) + 1, rowBot = Math.floor(priceAtY(H) / band) - 1;
   const k0 = Math.floor(L.t / SLOT - L.xNow / (cw)) - 1, k1 = Math.ceil((L.t + (W - L.xNow) / L.pps) / SLOT);
-  const yLast = yOf(last.p);
+  const yLast = yOf(dispP);
   ctx.textBaseline = 'middle';
 
   // soft glow around "now"
@@ -893,14 +905,14 @@ function draw() {
   if (hist.length > 1) {
     const lg = ctx.createLinearGradient(L.xNow - Wh, 0, L.xNow, 0);
     lg.addColorStop(0, `rgba(${th.line},0)`); lg.addColorStop(0.35, `rgba(${th.line},0.35)`); lg.addColorStop(0.8, `rgba(${th.line},0.92)`); lg.addColorStop(1, '#ffffff');
-    ctx.beginPath(); ctx.moveTo(L.xNow, yLast); let px = L.xNow;
-    for (let i = hist.length - 1; i >= 0; i--) {
-      const h = hist[i], age = L.t - h.t;
-      if (age > reach) break;
-      const x = hx(age);
-      if (px - x < 0.8 && i > 0) continue;           // skip sub-pixel points (keeps long histories cheap)
-      ctx.lineTo(x, hy(h.p, x)); px = x;
+    const pts = [[L.xNow, yLast]]; let px = L.xNow;
+    if (ind.smooth) { // display-only smoothing: 0.2 s grid, linear slide into each tick, Gaussian sigma 1.0 s
+      const STEP = 0.2, n = Math.max(2, Math.floor(reach / STEP)), { vals, from } = holdResample(hist, L.t - reach, STEP, n, 1.5), sm = gaussSmooth(vals, from, 5);
+      for (let k = n - 1; k >= from; k--) { const age = reach - k * STEP, x = hx(age); if (px - x < 1.2) continue; pts.push([x, hy(sm[k], x)]); px = x; }
+    } else {         // exact ticks
+      for (let k = hist.length - 1; k >= 0; k--) { const h = hist[k], age = L.t - h.t; if (age > reach) break; const x = hx(age); if (px - x < 0.8 && k > 0) continue; pts.push([x, hy(h.p, x)]); px = x; }
     }
+    ctx.beginPath(); smoothPath(pts);
     ctx.strokeStyle = lg; ctx.lineWidth = 2.2; ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     ctx.shadowColor = `rgba(${th.glow},0.55)`; ctx.shadowBlur = 10; ctx.stroke(); ctx.shadowBlur = 0;
   }
@@ -990,4 +1002,4 @@ function resize() {
 addEventListener('resize', resize); addEventListener('load', resize); resize();
 ['700 16px Rajdhani', '600 12px Rajdhani', '400 20px Bungee', '900 16px Orbitron'].forEach((f) => document.fonts && document.fonts.load(f).catch(() => {}));
 connect(); requestAnimationFrame(frame);
-window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, bars: bars.length, nowX: nowX(), ind: prof.settings.ind, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift, setInd: (patch) => { Object.assign(prof.settings.ind, patch); rebuildBars(); applyIndLayout(); } } };
+window.__tapline = { get state() { return { balance, bets, last, band, RH, cw: layout().cw, boardSize: board.size, offCells: [...board.values()].filter((c) => c.off).length, sigma: vol.sigma, wins, losses, streak, sounds: soundsPlayed, audio: actx ? actx.state : 'none', parts: parts.length, tension, slow, xp: prof.xp, level: levelInfo(prof.xp).level, ach: Object.keys(prof.ach).length, mission: prof.mission, bars: bars.length, nowX: nowX(), ind: prof.settings.ind, gifts: gifts.map((g) => ({ id: g.id, p0: g.p0, tier: g.tier, status: g.status, xp: g.xp, start: g.start, end: g.end, minD: g.minD ?? null })), giftCount: prof.stats.gifts || 0, music: { on: musicOn, notes: musicNotes, running: !!musicTimer, gain: musicGain ? +musicGain.gain.value.toFixed(3) : null }, avatar: prof.avatar.type, name: prof.name, addr: prof.wallet.addr, ledger: prof.wallet.ledger.length }; }, fx: { burst, ring, confetti, shake, showBanner, sfx, addXP, unlock, offerShare, shareCard, openProfile, openWallet, uploadAvatar, startMusic, walletMove, spawnGift, bench: (n = 60) => { const t0 = performance.now(); for (let i = 0; i < n; i++) draw(); return (performance.now() - t0) / n; }, setInd: (patch) => { Object.assign(prof.settings.ind, patch); rebuildBars(); applyIndLayout(); } } };

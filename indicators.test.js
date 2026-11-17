@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { sma, ema, rsi, pushTick, DEFAULT_IND } from './indicators.js';
+import { sma, ema, rsi, pushTick, DEFAULT_IND, holdResample, gaussSmooth } from './indicators.js';
 
 const close = (a, b, eps = 1e-9) => assert.ok(Math.abs(a - b) < eps, a + ' !~ ' + b);
 
@@ -34,3 +34,30 @@ test('pushTick forward-fills seconds without trades', () => {
   const far = []; pushTick(far, 0, 1, 1, 50); pushTick(far, 10000, 2, 1, 50); assert.equal(far.length, 50); assert.equal(far[49].c, 2); assert.equal(far[48].c, 1);
 });
 test('defaults are sane', () => { assert.ok(DEFAULT_IND.ma1.n < DEFAULT_IND.ma2.n); assert.equal(DEFAULT_IND.rsi.n, 14); });
+
+test('holdResample: sample-and-hold on a uniform grid, skips times before the first tick', () => {
+  const ticks = [{ t: 10, p: 1 }, { t: 10.25, p: 2 }, { t: 11, p: 3 }];
+  const { vals, from } = holdResample(ticks, 9.5, 0.5, 4);       // grid: 9.5 10 10.5 11 11.5
+  assert.equal(from, 1); assert.deepEqual([...vals].slice(1), [1, 2, 3, 3]);
+  assert.equal(holdResample([], 0, 1, 3).from, 4);
+});
+test('holdResample ramp: slides to the next tick instead of a staircase, never overshoots', () => {
+  const ticks = [{ t: 0, p: 10 }, { t: 4, p: 20 }];
+  const { vals } = holdResample(ticks, 0, 0.5, 8, 2);   // grid 0..4 s, ramp over the last 2 s
+  assert.equal(vals[0], 10); assert.equal(vals[3], 10);                // 1.5 s: still flat
+  assert.ok(Math.abs(vals[5] - 12.5) < 1e-9);                          // 2.5 s: 25 % of the way
+  assert.ok(Math.abs(vals[7] - 17.5) < 1e-9); assert.equal(vals[8], 20); // reaches the tick at its own time
+  assert.ok([...vals].every((v) => v >= 10 && v <= 20));
+  const short = holdResample([{ t: 0, p: 1 }, { t: 1, p: 3 }], 0, 0.5, 2, 5).vals;   // gap shorter than ramp: ramp spans the gap
+  assert.deepEqual([...short], [1, 2, 3]);
+});
+test('gaussSmooth: keeps constants, tames a one-sample spike, preserves mass, no lag on a ramp', () => {
+  assert.deepEqual([...gaussSmooth(new Float64Array(20).fill(5), 0, 2)].every((v) => Math.abs(v - 5) < 1e-12), true);
+  const v = new Float64Array(41); v[20] = 10; const s = gaussSmooth(v, 0, 3);
+  assert.ok(s[20] < 3.5 && s[20] > 0, 'spike reduced: ' + s[20]);
+  assert.ok(Math.abs([...s].reduce((a, b) => a + b, 0) - 10) < 0.05, 'mass preserved');
+  assert.ok(Math.abs(s[18] - s[22]) < 1e-9, 'symmetric');
+  const ramp = Float64Array.from({ length: 60 }, (_, i) => i); const r = gaussSmooth(ramp, 0, 3);
+  for (let i = 15; i < 45; i++) assert.ok(Math.abs(r[i] - i) < 1e-9, 'ramp unchanged in the interior at ' + i);
+  const part = gaussSmooth(Float64Array.from([0, 0, 0, 7, 7, 7, 7, 7]), 3, 2); assert.ok([...part].slice(3).every((x) => Math.abs(x - 7) < 1e-9), 'respects `from`');
+});
