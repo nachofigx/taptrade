@@ -8,7 +8,7 @@ export const MIN_P = 0.012;   // cells less likely than this are not offered
 export const MAX_MULT = 50;
 export const MIN_MULT = 1.1;
 export const PATHS = 2500;
-export const STEPS = 150;     // horizon = STEPS * DT seconds
+export const STEPS = 240;     // horizon = STEPS * DT = 120 seconds
 export const DT = 0.5;
 
 function mulberry32(a) {
