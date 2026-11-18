@@ -1,13 +1,14 @@
 // Can a player beat the house with the indicators we ship? Paired backtest on real trades: every strategy sees the same board each step.
 //   node tools/strategies.mjs trades.json [env: SYMBOL=sol EDGE=0.04 STEP=8 FROM=0 TO=1]
 import { readFileSync } from 'node:fs';
+import { loadTrades } from './load_trades.mjs';
 import { computeBoard, stepBet, Vol, SLOT, LOCK, STEPS, DT, EDGE } from '../engine.js';
 import { knotsFor } from '../calibration.js';
 import { ema, sma, rsi, pushTick } from '../indicators.js';
 import { marketContext } from '../context.js';
 
 const SYMBOL = process.env.SYMBOL || 'sol', EDGE_USE = +(process.env.EDGE || EDGE), STEP = +(process.env.STEP || 8), FROM = +(process.env.FROM || 0), TO = +(process.env.TO || 1), PER_STEP = 6, WARM = 120;
-let ticks = JSON.parse(readFileSync(process.argv[2], 'utf8')).map(([t, p]) => ({ t, p })); ticks = ticks.slice(Math.floor(ticks.length * FROM), Math.floor(ticks.length * TO));
+const TR = loadTrades(process.argv[2], FROM, TO), NT = TR.n;
 // SCHEDULE=sched.json (from `tuner.mjs schedule`) swaps the odds over time like a running tuner would; otherwise the built-in tables are used.
 const SCHED = process.env.SCHEDULE ? JSON.parse(readFileSync(process.env.SCHEDULE, 'utf8')).folds : null, builtIn = knotsFor(SYMBOL), NICE = [1, 2, 5, 10];
 const oddsAt = (t) => { const f = SCHED && SCHED.find((x) => t >= x.from && t < x.to); return f ? { cal: f.knots, adj: f.ctx } : { cal: builtIn, adj: null }; };
@@ -28,9 +29,9 @@ const S = {
   'only_<2x': (s, c) => c.m < 2, 'only_2-3.5x': (s, c) => c.m >= 2 && c.m < 3.5, 'only_3.5-8x': (s, c) => c.m >= 3.5 && c.m < 8, 'only_8-20x': (s, c) => c.m >= 8 && c.m < 20, 'only_20x+': (s, c) => c.m >= 20,
 };
 const names = Object.keys(S), book = Object.fromEntries(names.map((n) => [n, { open: [], done: [] }]));
-const vol = new Vol(); let idx = 0, last = null, band = null, bandAt = -1e9; const bars = [], t0 = ticks[0].t + WARM, tEnd = ticks[ticks.length - 1].t - 120;
+const vol = new Vol(); let idx = 0, last = null, band = null, bandAt = -1e9; const bars = [], t0 = TR.t[0] + WARM, tEnd = TR.t[NT - 1] - 120;
 const resolve = (a, b) => { for (const n of names) { const bk = book[n]; for (let i = bk.open.length - 1; i >= 0; i--) { const s = stepBet(bk.open[i], a, b); if (s !== 'open') { bk.open[i].status = s; bk.done.push(bk.open[i]); bk.open.splice(i, 1); } } } };
-const feedUntil = (t) => { while (idx < ticks.length && ticks[idx].t <= t) { const cur = ticks[idx++], prev = last || cur; last = cur; vol.add(cur.t, cur.p); pushTick(bars, cur.t, cur.p, 1, 400); resolve(prev, cur); } };
+const feedUntil = (t) => { while (idx < NT && TR.t[idx] <= t) { const cur = { t: TR.t[idx], p: TR.p[idx] }; idx++; const prev = last || cur; last = cur; vol.add(cur.t, cur.p); pushTick(bars, cur.t, cur.p, 1, 400); resolve(prev, cur); } };
 for (let t = t0 - WARM; t < t0; t += 1) feedUntil(t);
 for (let t = t0; t < tEnd; t += STEP) {
   feedUntil(t); resolve(last, { t, p: last.p }); pushTick(bars, t, last.p, 1, 400);

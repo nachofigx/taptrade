@@ -1,0 +1,21 @@
+[Unit]
+Description=Tapline odds tuner (retune + publish odds.json)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=tapline
+Group=tapline
+WorkingDirectory=/opt/tapline
+Environment=HOURS=48
+ExecStart=/opt/tapline/deploy/publish.sh
+Nice=10
+TimeoutStartSec=3h
+MemoryMax=900M
+# hardening: it only needs to read the app and write its own state directory
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/tapline /opt/tapline

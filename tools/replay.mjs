@@ -2,6 +2,7 @@
 //   node tools/replay.mjs trades.json [env: SYMBOL=sol EDGE=0.04 CAL=1 FROM=0 TO=1 STEP=6 SAMPLES=out.json]
 // Virtual $1 bets are placed on random offered cells and resolved with the game's own stepBet, so this tests the shipped code path.
 import { readFileSync, writeFileSync } from 'node:fs';
+import { loadTrades } from './load_trades.mjs';
 import { computeBoard, stepBet, Vol, SLOT, LOCK, STEPS, DT, EDGE } from '../engine.js';
 import { knotsFor } from '../calibration.js';
 import { pushTick } from '../indicators.js';
@@ -9,8 +10,7 @@ import { marketContext } from '../context.js';
 
 const SYMBOL = process.env.SYMBOL || 'sol', EDGE_USE = +(process.env.EDGE || EDGE), USE_CAL = process.env.CAL === '1', STEP = +(process.env.STEP || 6);
 const FROM = +(process.env.FROM || 0), TO = +(process.env.TO || 1), PER_STEP = 6, WARM = 90;
-let ticks = JSON.parse(readFileSync(process.argv[2], 'utf8')).map(([t, p]) => ({ t, p }));
-ticks = ticks.slice(Math.floor(ticks.length * FROM), Math.floor(ticks.length * TO));
+const TR = loadTrades(process.argv[2], FROM, TO), NT = TR.n;
 // ODDS=odds.json applies a tuner file (knots + context factors) instead of the built-in tables. MINP lowers the offer threshold (training only).
 const MINP = +(process.env.MINP || 0.0101); let cal = USE_CAL ? knotsFor(SYMBOL) : null, adj = null;
 if (process.env.ODDS) { const o = JSON.parse(readFileSync(process.env.ODDS, 'utf8')).assets?.[SYMBOL]; if (o) { cal = o.knots; adj = o.ctx || null; } }
@@ -24,9 +24,9 @@ function pickBand(S, sigma, H = 800, TOP = 68, RH = 44) {   // same rule as the 
 }
 let seed = 12345; const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
 const bars = [], vol = new Vol(); let idx = 0, last = null, band = null, bandAt = -1e9;
-const open = [], done = [], t0 = ticks[0].t + WARM, tEnd = ticks[ticks.length - 1].t - 120;
+const open = [], done = [], t0 = TR.t[0] + WARM, tEnd = TR.t[NT - 1] - 120;
 const resolve = (a, b) => { for (let i = open.length - 1; i >= 0; i--) { const s = stepBet(open[i], a, b); if (s !== 'open') { open[i].status = s; done.push(open[i]); open.splice(i, 1); } } };
-const feedUntil = (t) => { while (idx < ticks.length && ticks[idx].t <= t) { const cur = ticks[idx++], prev = last || cur; last = cur; vol.add(cur.t, cur.p); pushTick(bars, cur.t, cur.p, 1, 400); resolve(prev, cur); } };
+const feedUntil = (t) => { while (idx < NT && TR.t[idx] <= t) { const cur = { t: TR.t[idx], p: TR.p[idx] }; idx++; const prev = last || cur; last = cur; vol.add(cur.t, cur.p); pushTick(bars, cur.t, cur.p, 1, 400); resolve(prev, cur); } };
 for (let t = t0 - WARM; t < t0; t += 1) feedUntil(t);
 for (let t = t0; t < tEnd; t += STEP) {
   feedUntil(t); resolve(last, { t, p: last.p }); pushTick(bars, t, last.p, 1, 400);

@@ -82,7 +82,7 @@ On SOL and ETH no indicator strategy was significantly profitable. The 20x+ leak
 
 ## The tuner
 `tools/tuner.mjs` learns, from recent real trades, per asset: calibration knots and context factors (direction of the last 5 s x recent
-volatility x probability band, see `context.js`). `tools/run_tuner.sh [hours] [out]` runs the whole cycle: download trades -> simulate virtual bets
+volatility x probability band, see `context.js`). `tools/run_tuner.sh [hours=48] [out]` runs the whole cycle: download trades (incremental when `CACHE_DIR` is kept) -> simulate virtual bets
 with the game's engine -> fit -> validate on the newest 25 % of the window -> publish `odds.json` only if the guard passes.
 
 Guard (confidence-interval based, because a short holdout is noisy): refuse if the window has fewer than 20,000 samples, if overall return is
@@ -91,7 +91,7 @@ clearly above target, or if "with momentum", "against momentum", "20x+", "hot vo
 
 The game loads `odds.json` every 10 minutes, validates it (`odds.js`: monotone knots, ratios 0.4-10x, factors 0.5-2x) and falls back to the built-in
 tables on anything odd. Suggested cadence: every 6 hours on the previous 18-24 hours (that is what the walk-forward results above simulate).
-A cron line is enough: `0 */6 * * *  cd /srv/tapline && tools/run_tuner.sh 24 odds.json && git add odds.json && git commit -m "retune odds" && git push`.
+On a VPS use `deploy/` (systemd timer every 6 h, incremental download, publishes to the `odds-data` branch that the game reads): see `deploy/DEPLOY.md`.
 
 Walk-forward result of that cadence (fit on 18 h, test on the next 6 h; target 96 %): ETH 98.7 % overall (near cells 94-95 %), BTC 92.9-94.7 %.
 Without retuning BTC returned 110.9 %.

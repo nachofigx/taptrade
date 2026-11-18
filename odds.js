@@ -1,6 +1,7 @@
 // Odds published by the tuner (odds.json), validated before they can touch pricing. Anything out of range is rejected and the
 // built-in calibration (calibration.js) is used instead, so a bad or tampered file can never set absurd multipliers.
 import { knotsFor } from './calibration.js';
+import { ODDS_URLS } from './config.js';
 
 const num = (x) => typeof x === 'number' && Number.isFinite(x);
 function cleanKnots(k) {
@@ -34,6 +35,18 @@ export function oddsFor(doc, symbol) {
   const k = String(symbol || '').split('-')[0].toLowerCase(), a = doc && doc.assets[k];
   return a ? { knots: a.knots, adj: a.ctx, source: 'tuner' } : { knots: knotsFor(symbol), adj: null, source: 'built-in' };
 }
-export async function fetchOdds(url = 'odds.json') {
-  try { const r = await fetch(url + (url.includes('?') ? '&' : '?') + 'v=' + Math.floor(Date.now() / 60000), { cache: 'no-cache' }); return r.ok ? validateOdds(await r.json()) : null; } catch { return null; }
+// Tries each URL in order and returns the first file that validates (or null). Network errors and bad files just fall through.
+export async function fetchOdds(urls = ODDS_URLS) {
+  for (const url of [].concat(urls)) {
+    try {
+      const r = await fetch(url + (url.includes('?') ? '&' : '?') + 'v=' + Math.floor(Date.now() / 60000), { cache: 'no-cache' });
+      const v = r.ok ? validateOdds(await r.json()) : null;
+      if (v) return { ...v, url };
+    } catch { /* try the next one */ }
+  }
+  return null;
+}
+// Hours since the newest market data the odds were learned from (falls back to the file's creation time).
+export function oddsAgeHours(doc, nowMs = Date.now()) {
+  const t = Date.parse((doc && (doc.data_until || doc.updated)) || ''); return Number.isFinite(t) ? Math.max(0, (nowMs - t) / 3.6e6) : Infinity;
 }

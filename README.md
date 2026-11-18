@@ -8,7 +8,8 @@ Tap-trading game: tap a grid cell; if the live price touches that price band dur
 - `fonts/`      self-hosted Bungee, Orbitron, Rajdhani (SIL OFL)
 - `progress.js`  XP, levels, achievements, daily mission and streak, themes, pixel avatars, fake-wallet ledger (localStorage)
 - `odds.js` / `odds.json` / `context.js`  tuner output loader (validated), shipped baseline, market context used in pricing
-- `tools/`  fetch_trades.py, replay.mjs, strategies.mjs, tuner.mjs, run_tuner.sh (odds backtesting and tuning; see `ODDS.md`)
+- `deploy/`  VPS install (setup.sh, systemd timer, publish.sh) and DEPLOY.md; `config.js` says where the game reads odds from
+- `tools/`  fetch_trades.py (incremental), load_trades.mjs, replay.mjs, strategies.mjs, tuner.mjs, run_tuner.sh (odds backtesting and tuning; see `ODDS.md`)
 - `calibration.js`  probability calibration tables learned from real trades; see `ODDS.md` and `tools/`
 - `engine.test.js`  `node --test engine.test.js` (includes a ~45 s simulation check that expected return ≈ 92%)
 

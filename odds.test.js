@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validateOdds, oddsFor } from './odds.js';
+import { validateOdds, oddsFor, fetchOdds, oddsAgeHours } from './odds.js';
 import { KNOTS } from './calibration.js';
 
 const f = () => Array.from({ length: 3 }, () => Array.from({ length: 3 }, () => [1, 1, 1, 1]));
@@ -21,4 +21,20 @@ test('oddsFor: tuner first, built-in as fallback', () => {
   const v = validateOdds(good); assert.equal(oddsFor(v, 'SOL-USD').source, 'tuner'); assert.ok(oddsFor(v, 'SOL-USD').adj);
   const b = oddsFor(v, 'ETH-USD'); assert.equal(b.source, 'built-in'); assert.equal(b.knots, KNOTS.eth); assert.equal(b.adj, null);
   assert.equal(oddsFor(null, 'BTC-USD').knots, KNOTS.btc);
+});
+
+test('fetchOdds: first valid URL wins, bad or unreachable ones fall through, null when none work', async () => {
+  const realFetch = globalThis.fetch, calls = [];
+  const reply = (map) => async (url) => { calls.push(url.split('?')[0]); const r = map[url.split('?')[0]]; if (r instanceof Error) throw r; return r === undefined ? { ok: false } : { ok: true, json: async () => r }; };
+  try {
+    globalThis.fetch = reply({ 'https://a/odds.json': new Error('network'), 'https://b/odds.json': { assets: { sol: { knots: [[0.5, 0.01]] } } }, 'https://c/odds.json': good });
+    const v = await fetchOdds(['https://a/odds.json', 'https://b/odds.json', 'https://c/odds.json']);
+    assert.equal(v.url, 'https://c/odds.json'); assert.deepEqual(calls, ['https://a/odds.json', 'https://b/odds.json', 'https://c/odds.json']);
+    assert.equal(await fetchOdds('https://nothing/odds.json'), null);
+  } finally { globalThis.fetch = realFetch; }
+});
+test('oddsAgeHours uses the data cutoff when present', () => {
+  const now = Date.parse('2026-11-18T12:00:00Z');
+  assert.equal(oddsAgeHours({ data_until: '2026-11-18T06:00:00Z', updated: '2026-11-18T11:00:00Z' }, now), 6);
+  assert.equal(oddsAgeHours({ updated: '2026-11-18T10:00:00Z' }, now), 2); assert.equal(oddsAgeHours(null, now), Infinity);
 });

@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Tapline odds tuner every 6 hours
+
+[Timer]
+OnCalendar=*-*-* 00,06,12,18:20:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
