@@ -15,7 +15,7 @@ Coinbase (precios públicos)  ->  VPS: baja operaciones nuevas, simula, ajusta, 
 ```
 
 ## Requisitos
-- VPS con **Debian o Ubuntu** y acceso `root` por SSH (en Hostinger: hPanel -> VPS -> Acceso SSH). Si tu VPS usa otra distribución, dímelo.
+- VPS con **Ubuntu 24.04** (o Debian) y acceso `root` por SSH (en Hostinger: hPanel -> VPS -> Acceso SSH). Python 3.12 y git vienen de serie; el instalador añade Node 20.
 - 1 vCPU y 1 GB de RAM alcanzan. Medido en pruebas locales: el cálculo más pesado (BTC, 25 h) usó ~190 MB de pico y ~1 minuto.
   El servicio tiene un tope de 900 MB.
 - ~1 GB de disco. Salida a internet (descarga de `api.exchange.coinbase.com`, `github.com`).
@@ -45,7 +45,13 @@ Al terminar debe aparecer la rama `odds-data` en GitHub. Comprueba que abre:
 `https://raw.githubusercontent.com/nachofigx/taptrade/odds-data/odds.json`
 (GitHub puede tardar unos 5 minutos en reflejar un cambio).
 
-**4. Verifica en el juego**: perfil -> *Dificultad*. Debe decir "cuotas del tuner con datos hasta ...".
+**4. Comprueba la instalación** (una sola orden; marca OK / FAIL / WARN y dice cómo arreglar cada fallo):
+```bash
+sudo bash /opt/tapline/deploy/check.sh
+```
+Tiene que salir todo en OK, salvo que la primera ejecución siga en curso (entonces avisa de que hay una en marcha).
+
+**5. Verifica en el juego**: perfil -> *Dificultad*. Debe decir "cuotas del tuner con datos hasta ...".
 Si el archivo tiene más de 36 horas de antigüedad, el juego lo avisa en ese mismo texto.
 
 ## Cómo saber si va bien
@@ -89,5 +95,7 @@ No es necesario con el flujo de arriba.
 - **Probado** (con datos reales de Coinbase, publicando a un repositorio Git local de prueba): descarga incremental, simulación, ajuste, guardián,
   publicación en la rama `odds-data`, segunda ejecución, rechazo del guardián (el servicio no se marca como fallido), fallo de subida (sí se marca).
   También que el archivo publicado lo acepta el validador del juego.
+- **Probado además**: las 45 pruebas y un ciclo completo del tuner con datos reales bajo **Node 20.20** (la versión que instala el script), y el consumo de memoria
+  (pico de 353 MB en la descarga incremental de BTC y ~190 MB en el cálculo, dentro del tope de 900 MB). El script `check.sh` se probó contra las cuotas publicadas.
 - **No probado**: la instalación en un VPS real. No se ejecutaron `setup.sh`, systemd, la instalación de Node por `apt`, ni la clave de despliegue
   con GitHub, porque desde mi entorno no puedo llegar a tu servidor. Si algo falla, pega el mensaje de error y lo corregimos.

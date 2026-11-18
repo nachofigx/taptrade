@@ -50,5 +50,6 @@ $(cat "$KEY.pub")
    sudo systemctl start --no-block tapline-tuner
    journalctl -fu tapline-tuner          # follow it (Ctrl+C to stop following)
 
-Check later:  systemctl list-timers tapline-tuner.timer   |   cat $STATE/status.json
+Check everything at once:  sudo bash $APP/deploy/check.sh
+Or by hand:  systemctl list-timers tapline-tuner.timer   |   cat $STATE/status.json
 MSG
