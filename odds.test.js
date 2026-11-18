@@ -38,3 +38,10 @@ test('oddsAgeHours uses the data cutoff when present', () => {
   assert.equal(oddsAgeHours({ data_until: '2026-11-18T06:00:00Z', updated: '2026-11-18T11:00:00Z' }, now), 6);
   assert.equal(oddsAgeHours({ updated: '2026-11-18T10:00:00Z' }, now), 2); assert.equal(oddsAgeHours(null, now), Infinity);
 });
+
+test('turbo columns use their own tables when the tuner published them, otherwise fall back to the normal ones', () => {
+  const v = validateOdds({ assets: { sol: { knots: KNOTS.sol }, 'sol@2': { knots: KNOTS.eth } } });
+  assert.ok(v.assets['sol@2']); assert.equal(oddsFor(v, 'SOL-USD', 2).knots, v.assets['sol@2'].knots); assert.equal(oddsFor(v, 'SOL-USD', 5).knots, v.assets.sol.knots);
+  const only5 = validateOdds({ assets: { sol: { knots: KNOTS.sol } } }); assert.equal(oddsFor(only5, 'SOL-USD', 2).knots, only5.assets.sol.knots);
+  assert.equal(validateOdds({ assets: { 'sol@': { knots: KNOTS.sol } } }), null); assert.equal(validateOdds({ assets: { 'sol@999': { knots: KNOTS.sol } } }), null);
+});

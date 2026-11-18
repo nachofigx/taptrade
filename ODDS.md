@@ -125,3 +125,13 @@ few points because the bets of one market stretch are correlated). SOL 95 h judg
 - A cycle is cheap (incremental download plus about a minute of CPU per asset), so the default stays at every 6 h for all assets.
   If you must cut work, run SOL/ETH every 12 h and BTC every 6 h.
 - Limits: BTC was judged on only 32 h; the thresholds tried (0.15-0.40 for ATR, 6-10 pp for the monitor) were not tuned further.
+
+## Turbo columns (2 s) and the per-asset guard
+Turbo mode shortens the columns to 2 s. The 5 s tables do not transfer exactly: replaying the shipped tables on 2 s columns moved the
+return by **SOL +2.8, ETH +5.8, BTC -3.2 points** (same 20-30 h of trades), so no single correction works. The tuner now learns separate
+tables, published as `sol@2`, `eth@2`, `btc@2`; the game picks the table for the current column length and falls back to the normal one.
+`tools/replay.mjs` takes `SLOT_S` / `LOCK_S` for this (`TURBO=0` in `run_tuner.sh` skips it).
+
+The guard now works per table: a table that fails keeps its previous entry (marked `stale`, with the reason) and the rest are published;
+only if nothing can be published does the run refuse. Before, one refused asset blocked all of them.
+Held-out return of the shipped file (target 96 %): SOL 96.3 / turbo 95.7, ETH 96.8 / 97.8, BTC 92.8 / 91.4.

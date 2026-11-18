@@ -15,7 +15,7 @@ status() { printf '{"time":"%s","result":"%s","message":"%s","hours":%s}\n' "$(n
 [ "${UPDATE_CODE:-1}" = 1 ] && git -C "$APP" pull --ff-only -q 2>&1 | tail -2
 
 cd "$APP"
-CACHE_DIR="$STATE/cache" ASSETS="$ASSETS" tools/run_tuner.sh "$HOURS" "$STATE/odds.new.json" > "$STATE/last_run.log" 2>&1
+PREV_ODDS="$STATE/odds-repo/odds.json" CACHE_DIR="$STATE/cache" ASSETS="$ASSETS" tools/run_tuner.sh "$HOURS" "$STATE/odds.new.json" > "$STATE/last_run.log" 2>&1
 rc=$?
 if [ "$rc" != 0 ]; then
   tail -5 "$STATE/last_run.log"

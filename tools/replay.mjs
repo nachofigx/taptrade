@@ -8,6 +8,8 @@ import { knotsFor } from '../calibration.js';
 import { pushTick } from '../indicators.js';
 import { marketContext } from '../context.js';
 
+// SLOT_S / LOCK_S: column length and betting lock in seconds (default: the game's normal 5 s / 3 s; turbo mode is 2 s / 2 s)
+const SL = +(process.env.SLOT_S || SLOT), LK = +(process.env.LOCK_S || LOCK);
 const SYMBOL = process.env.SYMBOL || 'sol', EDGE_USE = +(process.env.EDGE || EDGE), USE_CAL = process.env.CAL === '1', STEP = +(process.env.STEP || 6);
 const FROM = +(process.env.FROM || 0), TO = +(process.env.TO || 1), PER_STEP = 6, WARM = 90;
 const TR = loadTrades(process.argv[2], FROM, TO), NT = TR.n;
@@ -31,13 +33,13 @@ for (let t = t0 - WARM; t < t0; t += 1) feedUntil(t);
 for (let t = t0; t < tEnd; t += STEP) {
   feedUntil(t); resolve(last, { t, p: last.p }); pushTick(bars, t, last.p, 1, 400);
   if (t - bandAt > 60) { const nb = pickBand(last.p, vol.sigma); if (!band || nb / band > 1.6 || nb / band < 0.62) band = nb; bandAt = t; }
-  const cr = Math.floor(last.p / band), k0 = Math.ceil((t + LOCK) / SLOT), ctx = marketContext(bars.map((b) => b.c), vol.sigma);
-  const board = computeBoard({ S: last.p, sigma: vol.sigma, now: t, slotFrom: k0, slotTo: Math.floor((t + STEPS * DT) / SLOT) - 1, rowFrom: cr - 14, rowTo: cr + 14, band, edge: EDGE_USE, cal, adj, ctx, minP: MINP });
+  const cr = Math.floor(last.p / band), k0 = Math.ceil((t + LK) / SL), ctx = marketContext(bars.map((b) => b.c), vol.sigma);
+  const board = computeBoard({ S: last.p, sigma: vol.sigma, now: t, slotFrom: k0, slotTo: Math.floor((t + STEPS * DT) / SL) - 1, rowFrom: cr - 14, rowTo: cr + 14, band, slot: SL, edge: EDGE_USE, cal, adj, ctx, minP: MINP });
   const cells = [...board].filter(([key, c]) => !c.off && +key.split(':')[0] <= k0 + 11);
   for (let n = 0; n < PER_STEP && cells.length; n++) {
     const [key, c] = cells[Math.floor(rnd() * cells.length)], [k, r] = key.split(':').map(Number);
     if (open.some((b) => b.k === k && b.r === r)) continue;
-    open.push({ k, r, start: k * SLOT, end: (k + 1) * SLOT, lo: r * band, hi: (r + 1) * band, mult: c.m, p: c.p, status: 'open', t, dir: Math.sign(r - cr), mz: ctx.mz, vr: ctx.vr });
+    open.push({ k, r, start: k * SL, end: (k + 1) * SL, lo: r * band, hi: (r + 1) * band, mult: c.m, p: c.p, status: 'open', t, dir: Math.sign(r - cr), mz: ctx.mz, vr: ctx.vr });
   }
 }
 feedUntil(tEnd + 100); resolve(last, { t: tEnd + 100, p: last.p });

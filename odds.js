@@ -24,18 +24,18 @@ export function validateOdds(doc) {
   if (!doc || typeof doc !== 'object' || !doc.assets || typeof doc.assets !== 'object') return null;
   const assets = {};
   for (const [name, a] of Object.entries(doc.assets)) {
-    if (!/^[a-z0-9]{2,8}$/.test(name) || !a) continue;
+    if (!/^[a-z0-9]{2,8}(@[0-9]{1,2})?$/.test(name) || !a) continue;   // 'sol' = normal columns, 'sol@2' = tables learned for 2-second turbo columns
     const knots = cleanKnots(a.knots); if (!knots) continue;
     assets[name] = { knots, ctx: cleanCtx(a.ctx), samples: num(a.samples) ? a.samples : null };
   }
   return Object.keys(assets).length ? { updated: typeof doc.updated === 'string' ? doc.updated.slice(0, 32) : null, data_until: typeof doc.data_until === 'string' ? doc.data_until.slice(0, 32) : null, window_hours: num(doc.window_hours) ? doc.window_hours : null, assets } : null;
 }
-// Table for an asset symbol such as 'SOL-USD': tuner file first, then the built-in calibration (no context factors).
-export function oddsFor(doc, symbol) {
-  const k = String(symbol || '').split('-')[0].toLowerCase(), a = doc && doc.assets[k];
+// Table for an asset symbol such as 'SOL-USD' and a column length in seconds: tuner file first ('sol@2' for turbo columns, else 'sol'),
+// then the built-in calibration (learned on 5-second columns, no context factors).
+export function oddsFor(doc, symbol, slot = 5) {
+  const k = String(symbol || '').split('-')[0].toLowerCase(), a = doc && (slot !== 5 && doc.assets[k + '@' + slot] || doc.assets[k]);
   return a ? { knots: a.knots, adj: a.ctx, source: 'tuner' } : { knots: knotsFor(symbol), adj: null, source: 'built-in' };
 }
-// Tries each URL in order and returns the first file that validates (or null). Network errors and bad files just fall through.
 export async function fetchOdds(urls = ODDS_URLS) {
   for (const url of [].concat(urls)) {
     try {

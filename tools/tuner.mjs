@@ -78,7 +78,9 @@ if (process.argv[1] && process.argv[1].endsWith('tuner.mjs')) {
   const edge = +(opt.edge || 0.04), load = (files) => files.split(',').flatMap((f) => JSON.parse(readFileSync(f, 'utf8')));
   if (process.argv[2] === 'fit') {
     // --last H: only the most recent H hours (the market of today). --holdout F: fit on the older part, check on the newest F, refuse to publish on failure.
-    const out = { version: 1, updated: new Date().toISOString(), edge, window_hours: +(opt.last || 0) || null, assets: {} }; let failed = false, dataUntil = 0;
+    // --prev odds.json: an asset that fails the guard keeps its previous entry (marked stale) instead of blocking the whole file.
+    let prev = null; if (opt.prev) { try { prev = JSON.parse(readFileSync(opt.prev, 'utf8')); } catch { prev = null; } }
+    const out = { version: 1, updated: new Date().toISOString(), edge, window_hours: +(opt.last || 0) || null, assets: {} }; let failed = false, dataUntil = prev && prev.data_until ? Date.parse(prev.data_until) / 1000 : 0, kept = 0, fresh = 0;
     for (const s of sets) {
       const [name, files] = s.split('='); let rows = load(files).sort((a, b) => a[3] - b[3]);
       if (opt.last) { const tmax = rows[rows.length - 1][3]; rows = rows.filter((r) => r[3] >= tmax - +opt.last * 3600); }
@@ -94,10 +96,13 @@ if (process.argv[1] && process.argv[1].endsWith('tuner.mjs')) {
         if (all.hi < target - 0.12) guard.notes.push(`warning: house kept far more than promised (${pct(all.lo).trim()}..${pct(all.hi).trim()}%)`);
         for (const sl of ['with momentum', 'against momentum', '20x+', 'hot vol, far cells', 'calm vol, near cells']) { const r = g(SLICES[sl]); if (r.n > 300 && r.lo > 1.0) { guard.ok = false; guard.notes.push(`${sl}: ${pct(r.lo).trim()}..${pct(r.hi).trim()}% (player advantage)`); } }
       }
-      const knots = fitKnots(rows), ctx = { f: fitContext(rows, knots) }; out.assets[name] = { knots, ctx, samples: rows.length, guard };
+      if (!guard.ok && prev && prev.assets && prev.assets[name]) { out.assets[name] = { ...prev.assets[name], stale: true, refused: guard.notes.join('; ') }; kept++; console.log(name.padEnd(6), 'REFUSED -> keeping previous entry:', guard.notes.join('; ')); continue; }
+      fresh++; const knots = fitKnots(rows), ctx = { f: fitContext(rows, knots) }; out.assets[name] = { knots, ctx, samples: rows.length, guard };
       console.log(name.padEnd(4), String(rows.length).padStart(7), 'samples', knots.length, 'knots', guard.holdout ? `holdout ${guard.holdout.ret * 100}%` : '', guard.ok ? "OK" + (guard.notes.length ? " (" + guard.notes.join("; ") + ")" : "") : "REFUSED: " + guard.notes.join("; ")); if (!guard.ok) failed = true;
     }
-    if (failed && !opt.force) { console.error('guard failed: odds.json NOT written (use --force to override)'); process.exit(2); }
+    if (failed && !opt.force) { console.error('guard failed and there is no previous entry to keep: odds.json NOT written (use --force to override)'); process.exit(2); }
+    if (kept && !fresh) { console.error('every asset was refused: odds.json NOT written'); process.exit(2); }
+    if (kept) console.log(`${kept} asset(s) kept their previous tables, ${fresh} updated`);
     out.data_until = new Date(dataUntil * 1000).toISOString();   // newest market data the odds were learned from (updated = when the file was made)
     writeFileSync(opt.out || 'odds.json', JSON.stringify(out)); console.log('wrote', opt.out || 'odds.json', '| data until', out.data_until);
   } else if (process.argv[2] === 'schedule') {   // the odds a running tuner would have published: refit every `test` hours on the previous `train` hours
