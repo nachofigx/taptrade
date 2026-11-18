@@ -135,3 +135,19 @@ tables, published as `sol@2`, `eth@2`, `btc@2`; the game picks the table for the
 The guard now works per table: a table that fails keeps its previous entry (marked `stale`, with the reason) and the rest are published;
 only if nothing can be published does the run refuse. Before, one refused asset blocked all of them.
 Held-out return of the shipped file (target 96 %): SOL 96.3 / turbo 95.7, ETH 96.8 / 97.8, BTC 92.8 / 91.4.
+
+## Can an ATR replace the tuner? (measured, code not kept)
+Sizing the model's volatility with an ATR(100) instead of the engine's EWMA was tested on 48 h of SOL/ETH/BTC (gap = realised minus intended
+return, percentage points, smaller is better):
+
+| | SOL | ETH | BTC |
+|---|---|---|---|
+| EWMA volatility (current), no tuning | 30.0 | 25.0 | 33.9 |
+| ATR(100) of 60 s bars, no tuning | 27.3 | 23.4 | 30.4 |
+| EWMA + tuner | 3.4 | 6.8 | 6.3 |
+| ATR(100) of 60 s bars + tuner | 8.1 | 7.3 | 4.0 |
+
+An ATR measures the *level* of volatility slightly better, but the model's error is in the *shape* (near cells over-priced, jumps under-priced, momentum
+on BTC), which no volatility estimate fixes. With 1 s or 5 s bars the scale constant differs by asset; with 60 s bars it is 1.6 for all three (theory:
+1.596), so an ATR(100 x 60 s) is a usable way to size volatility when there is no history, but not a replacement for calibration. As a retune *trigger*
+it did not beat a calendar (see "How often to retune").
