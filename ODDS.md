@@ -103,3 +103,25 @@ Without retuning BTC returned 110.9 %.
 - The shipped `odds.json` is a snapshot (see `data_until`) and ages; without the tuner running it is only as good as that window.
 - Everything is priced in the browser. Anyone can edit their own client and change multipliers. That is fine for a practice game. With real money
   pricing, settlement and balances must live on a server, with this tuner feeding it, and the odds/edge become legal and product decisions.
+
+## How often to retune (measured)
+`tools/cadence.mjs` replays a running tuner: at each refit time the tables are re-fitted on the previous 24 h and judged only on bets placed afterwards.
+`gap` = realised minus intended return in percentage points, weighted over multiplier buckets (0 = perfectly priced; it has a noise floor of a
+few points because the bets of one market stretch are correlated). SOL 95 h judged, ETH 52 h, BTC 32 h.
+
+| Policy | SOL gap (retunes/day) | ETH gap | BTC gap |
+|---|---|---|---|
+| never (fit once) | 13.3 (0.3) | 10.4 (0.5) | 7.9 (0.8) |
+| every 6 h | **4.4** (4.0) | **4.3** (4.1) | **2.6** (4.6) |
+| every 12 h | 5.1 (2.0) | 4.7 (2.3) | 3.3 (2.3) |
+| every 24 h | 5.8 (1.0) | 5.9 (1.4) | 5.7 (1.5) |
+| every 48 h | 10.5 (0.5) | 9.6 (0.9) | 7.9 (0.8) |
+| ATR(100 x 1 min) trigger, abs(ln ratio) > 0.40 | 5.0 (3.3) | 4.4 (4.6) | 2.8 (4.6) |
+| monitor: recent gap > 8 pp | 4.5 (9.8) | 3.5 (9.2) | 1.9 (9.9) |
+
+- Every 12 h costs under 1 point versus every 6 h on SOL/ETH. BTC needs 6 h: 24 h already costs 3 points. 48 h or "once" is clearly worse everywhere.
+- An ATR regime trigger did **not** beat a plain calendar: at the same number of retunes it gives the same gap. The performance monitor gets a
+  slightly lower gap on ETH/BTC but triggers 3x as often, because three hours of bets are a noisy sample.
+- A cycle is cheap (incremental download plus about a minute of CPU per asset), so the default stays at every 6 h for all assets.
+  If you must cut work, run SOL/ETH every 12 h and BTC every 6 h.
+- Limits: BTC was judged on only 32 h; the thresholds tried (0.15-0.40 for ATR, 6-10 pp for the monitor) were not tuned further.
