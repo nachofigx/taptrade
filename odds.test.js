@@ -41,7 +41,7 @@ test('oddsAgeHours uses the data cutoff when present', () => {
 
 test('turbo columns use their own tables when the tuner published them, otherwise fall back to the normal ones', () => {
   const v = validateOdds({ assets: { sol: { knots: KNOTS.sol }, 'sol@2': { knots: KNOTS.eth } } });
-  assert.ok(v.assets['sol@2']); assert.equal(oddsFor(v, 'SOL-USD', 2).knots, v.assets['sol@2'].knots); assert.equal(oddsFor(v, 'SOL-USD', 5).knots, v.assets.sol.knots);
-  const only5 = validateOdds({ assets: { sol: { knots: KNOTS.sol } } }); assert.equal(oddsFor(only5, 'SOL-USD', 2).knots, only5.assets.sol.knots);
+  assert.ok(v.assets['sol@2']); assert.equal(oddsFor(v, 'SOL-USD', 2).knots, v.assets['sol@2'].knots); assert.equal(oddsFor(v, 'SOL-USD', 2).key, 'sol@2'); assert.equal(oddsFor(v, 'SOL-USD', 5).key, 'sol'); assert.equal(oddsFor(v, 'SOL-USD', 5).knots, v.assets.sol.knots);
+  const only5 = validateOdds({ assets: { sol: { knots: KNOTS.sol } } }); assert.equal(oddsFor(only5, 'SOL-USD', 2).knots, only5.assets.sol.knots); assert.equal(oddsFor(only5, 'SOL-USD', 2).key, 'sol');
   assert.equal(validateOdds({ assets: { 'sol@': { knots: KNOTS.sol } } }), null); assert.equal(validateOdds({ assets: { 'sol@999': { knots: KNOTS.sol } } }), null);
 });

@@ -34,7 +34,8 @@ export function validateOdds(doc) {
 // then the built-in calibration (learned on 5-second columns, no context factors).
 export function oddsFor(doc, symbol, slot = 5) {
   const k = String(symbol || '').split('-')[0].toLowerCase(), a = doc && (slot !== 5 && doc.assets[k + '@' + slot] || doc.assets[k]);
-  return a ? { knots: a.knots, adj: a.ctx, source: 'tuner' } : { knots: knotsFor(symbol), adj: null, source: 'built-in' };
+  const key = a ? (slot !== 5 && doc.assets[k + '@' + slot] ? k + '@' + slot : k) : null;
+  return a ? { knots: a.knots, adj: a.ctx, source: 'tuner', key } : { knots: knotsFor(symbol), adj: null, source: 'built-in', key: null };
 }
 export async function fetchOdds(urls = ODDS_URLS) {
   for (const url of [].concat(urls)) {
